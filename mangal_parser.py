@@ -1,11 +1,20 @@
 import requests as req
 import openpyxl
 
-from taxonomy_resolution import get_kingdom
+from taxonomy_info import get_kingdom
+
+"""
+    Parses network using the mangal web API, and converts them to the IWDB format,
+    with metadata posted at the start of the worksheet.
+"""
+
+# TODO not all species in mangal are named and identified correctly, so in order to
+# TODO coerce IWDB format, all unidentified species should be derived from their
+# TODO connections
 
 BY_ID_URL = "https://mangal.io/api/v2/{data_type}/{value}"
 QUERY_URL = "https://mangal.io/api/v2/{data_type}?{query_by}={value}"
-SAVE_PATH = "C:\\Personal\\University\Lab\\Mangal\\{filename}.xlsx"
+SAVE_PATH = "C:\\Personal\\University\\Lab\\Mangal\\{filename}.xlsx"
 
 
 def mangal_request(data_type, query_parameter, request_value, is_query=True):

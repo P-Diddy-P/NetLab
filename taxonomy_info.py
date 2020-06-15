@@ -36,6 +36,9 @@ def get_kingdom(name):
         raise KeyError("{} kingdom not found, with response: {}".format(name, taxonomy))
     return taxonomy['kingdom']
 
+def test_get_kingdom():
+    assert get_kingdom("Echium wildpretii") == get_kingdom("Echium") == "Plantae"
+
 
 if __name__ == "__main__":
-    assert get_kingdom("Echium wildpretii") == get_kingdom("Echium") == "Plantae"
+    test_get_kingdom()
