@@ -1,6 +1,6 @@
 import os
 import openpyxl
-import hashlib
+import pandas as pd
 
 """
     Checks for duplicate networks in a two steps method:
@@ -18,7 +18,8 @@ import hashlib
 """
 
 TEST_BASE = "C:\\Personal\\University\\Lab"
-TEST_LIST = ["WoL\\converted", "Mangal", "IWDB"]
+TEST_LIST = ["WoL\\converted"]#, "Mangal", "IWDB"]
+
 
 def get_excel_dimensions(filename):
     wb = openpyxl.load_workbook(filename)
@@ -44,14 +45,14 @@ def hash_by_dimension(dirlist):
     return dimension_dict
 
 
+def hash_by_interaction(file_list):
+    raise NotImplementedError
+
+
 if __name__ == "__main__":
     dim_hash = hash_by_dimension([TEST_BASE + "\\" + e for e in TEST_LIST])
-    acc = 0
-    total = 0
+    possible_duplicates = []
 
-    for k, v in dim_hash.items():
-        if len(v) > 1:
-            print(k, len(v), v)
-            acc += 1
-            total += len(v)
-    print(acc, total)
+    for dim, file_list in dim_hash.items():
+        if len(file_list) > 1:
+            possible_duplicates.append(hash_by_interaction(file_list))

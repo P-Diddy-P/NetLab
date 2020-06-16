@@ -24,17 +24,14 @@ def gbif_request(search_value, delimeter='_', only_genus=False):
     return response.json()
 
 
-def get_kingdom(name):
-    if len(name.split(' ')) < 2:
-        taxonomy = gbif_request(name, only_genus=True)
-    elif len(name.split(' ')) == 2:
-        taxonomy = gbif_request(name)
-    else:
-        raise ValueError("Request taxonomy only with 'species' or 'genus species'")
+def get_kingdom(species):
+    genus = species.split(' ')[0]
+    taxonomy = gbif_request(genus, only_genus=True)
 
     if 'kingdom' not in taxonomy.keys():
-        raise KeyError("{} kingdom not found, with response: {}".format(name, taxonomy))
+        return "Unknown"
     return taxonomy['kingdom']
+
 
 def test_get_kingdom():
     assert get_kingdom("Echium wildpretii") == get_kingdom("Echium") == "Plantae"

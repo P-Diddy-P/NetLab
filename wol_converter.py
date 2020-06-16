@@ -17,11 +17,11 @@ CONVERT_DIR = "C:\\Personal\\University\\Lab\\WoL\\converted"
 REFERENCES = dict()
 
 
-def setup_workbook(netname):
+def setup_workbook(network_name):
     wb = openpyxl.Workbook()
     sheet = wb.active
 
-    sheet['A1'] = str(REFERENCES[netname])
+    sheet['A1'] = str(REFERENCES[network_name])
     sheet['C1'] = "plant_ge"
     sheet['C2'] = "plant_sp"
     sheet['C3'] = "no."
