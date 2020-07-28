@@ -1,41 +1,190 @@
 import requests as req
+import xml.etree.ElementTree as elmt
+import concurrent.futures
 
 """
-    Taxonomy resolution using the GBIF backbone database (https://www.gbif.org/), used to
-    order mangal data as a true bipartite network in the excel file.
-
-    This is done by getting the kingdom of a given species: if it's from Plantae, it's a 
-    plant, if it's from Animalia, it's a pollinator.
+    As it turns out, mangal already did some heavy lifting for us, there are 'taxonomy'
+    entries in the database, linking to one of the following taxonomy services:
+    ITIS, BOLD, EOL, NCBI, COL, GBIF. Each service has a varying percentage of coverage
+    for different areas.
     
-    Note that GBIF requests only work for either a 'genus' query or a 'species' query of
-    two words (genus species).
+    As such, we'll implement taxonomy requests for all services both by id and my species/genus names, 
+    and run them when necessary from a thread pool.
 """
 
-GBIF_URL = "https://api.gbif.org/v1/species/match?rank={rank}&strict=false&name={species_name}"
+DELIMETER = {'u': "_", 'p': '+'}
+MANGAL_TAXONOMY_URL = "https://mangal.io/api/v2/taxonomy/"
+TAXONOMY_DB = {
+    'tsn': "https://www.itis.gov/ITISWebService/jsonservice/",
+    'bold': "https://v3.boldsystems.org/index.php/API_Tax/",
+    'ncbi': "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/",
+    'col': "http://webservice.catalogueoflife.org/col/",
+    'gbif': "https://api.gbif.org/v1/species/"
+}
 
 
-def gbif_request(search_value, delimeter='_', only_genus=False):
-    request = GBIF_URL.format(rank=("genus" if only_genus else "species"),
-                              species_name=delimeter.join(search_value.split(' ')))
+def taxonomy_request(request):
     response = req.get(request)
-
-    if response.status_code != 200:
+    if not response.ok:
         raise ConnectionError("request '{0}' failed with error code {1}.".format(request, response.status_code))
-    return response.json()
+    return response
 
 
-def get_kingdom(species):
-    genus = species.split(' ')[0]
-    taxonomy = gbif_request(genus, only_genus=True)
+def request_by_id(db, species_id):
+    if db == 'ncbi':  # special case NCBI XML response
+        id_specifier = "efetch.fcgi?db=taxonomy&id={0}".format(species_id)
+        return taxonomy_request(TAXONOMY_DB['ncbi'] + id_specifier)
+    if db == 'eol':
+        # special case EOL response inconsistent with mangal taxonomy IDs
+        # more info https://eol.org/docs/what-is-eol/classic-apis
+        raise NotImplementedError
 
-    if 'kingdom' not in taxonomy.keys():
-        return "Unknown"
-    return taxonomy['kingdom']
+    if db == 'tsn':  # tsn is the name of ITIS ids
+        id_specifier = "getKingdomNameFromTSN?tsn={0}".format(species_id)
+    if db == 'bold':
+        id_specifier = "TaxonData?dataTypes=basic&taxId={0}".format(species_id)
+    if db == 'col':
+        id_specifier = "webservice?format=json&response=full&id={0}".format(species_id)
+    if db == 'gbif':
+        id_specifier = species_id
+    return taxonomy_request(TAXONOMY_DB[db] + str(id_specifier)).json()
 
 
-def test_get_kingdom():
-    assert get_kingdom("Echium wildpretii") == get_kingdom("Echium") == "Plantae"
+def request_by_name(db, *args):
+    if db == 'tsn':  # requires multiple queries
+        raise NotImplementedError
+    if db == 'eol':  # inconsistent with mangal
+        raise NotImplementedError
+    if db == 'ncbi':
+        raise NotImplementedError
+
+    name_tokens = []
+    for arg in args:
+        for t in arg.split(" "):
+            name_tokens.append(t)
+    if db == 'bold':
+        name = DELIMETER['p'].join(name_tokens)
+        match_specifier = "TaxonSearch?fuzzy=false&taxName={0}".format(name)
+    if db == 'col':
+        name = DELIMETER['p'].join(name_tokens)
+        match_specifier = "webservice?format=json&response=full&name={0}".format(name)
+    if db == 'gbif':
+        name = DELIMETER['u'].join(name_tokens)
+        match_specifier = "match?rank=species&strict=false&name={0}".format(name)
+    return taxonomy_request(TAXONOMY_DB[db] + match_specifier).json()
+
+
+def itis_parse_response(response_json):
+    # response will only be from from id search,
+    # no need to consider multiple results
+    return response_json["kingdomName"]
+
+
+def bold_parse_response(response_json):
+    if "taxid" not in response_json.keys():
+        # If there's no taxid in the outermost dict, the request was a search by
+        # name and the "highest voted" kingdom is returned.
+        kingdom_candidates = dict()
+        for _, taxon in response_json.items():
+            try:
+                taxon_kingdom = taxon["tax_division"]
+                kingdom_candidates[taxon_kingdom] = kingdom_candidates.get(taxon_kingdom, 0) + 1
+            except KeyError:
+                pass
+
+        selected_kingdom = (None, 0)
+        for kingdom, votes in kingdom_candidates.items():
+            selected_kingdom = selected_kingdom if selected_kingdom[1] > votes else (kingdom, votes)
+        return selected_kingdom[0]
+
+    else:
+        # If there is a taxid in the outermost dict, the request was a search by
+        # id, simply return the kingdom.
+        return response_json["tax_division"]
+
+
+def eol_parse_response(response):  # response format irrelevant
+    raise NotImplementedError
+
+
+def parse_kingdom_from_lineage(lineage):
+    # NCBI uses a different nomenclature then other DBs, opting for
+    # Viridoplantae (green plants) instead of plantae and
+    # Metazoa instead of Animalia
+    if "Metazoa" in lineage or "Animalia" in lineage:
+        return "Animalia"
+    elif "Viridiplantae" in lineage or "Plantae" in lineage:
+        return "Plantae"
+    else:
+        return ""
+
+
+def ncbi_parse_response(response_xml):
+    root = elmt.fromstring(response_xml.text)
+    taxon = root[0]  # currently ncbi requests are only by id, so only one taxon returned
+
+    for child in taxon:
+        if child.tag == "Lineage":
+            return parse_kingdom_from_lineage(child.text)
+    return ""
+
+
+def col_parse_response(response_json):
+    if response_json["number_of_results_returned"] > 1:
+        kingdom_candidates = dict()
+        for result in response_json["results"]:
+            try:
+                result_kingdom = result["classification"][0]["name"]
+                kingdom_candidates[result_kingdom] = kingdom_candidates.get(result_kingdom, 0) + 1
+            except KeyError:
+                pass
+
+        selected_kingdom = (None, 0)
+        for kingdom, votes in kingdom_candidates.items():
+            selected_kingdom = selected_kingdom if selected_kingdom[1] > votes else (kingdom, votes)
+        return selected_kingdom[0]
+    else:
+        return response_json["results"][0]["classification"][0]["name"]
+
+
+def gbif_parse_response(response_json):
+    return response_json["kingdom"]
+
+
+def parse_response(db, response):
+    parsers = {
+        'tsn': itis_parse_response,
+        'bold': bold_parse_response,
+        'ncbi': ncbi_parse_response,
+        'col': col_parse_response,
+        'gbif': gbif_parse_response
+    }
+    return parsers[db](response)
+
+
+def get_mangal_taxonomy_data(tax_id):
+    response = taxonomy_request(MANGAL_TAXONOMY_URL + tax_id).json()
+    id_dict = dict()
+    for db in TAXONOMY_DB:
+        id_dict[db] = response[db]
+    return id_dict
+
+
+def get_nodes_kingdom(nodes):
+    mangal_taxonomy_info = dict()
+    for node in nodes:
+        if 'taxonomy' in node.keys() and node['taxonomy'] is not None:
+            mangal_taxonomy_info[node['id']] = node['taxonomy']
+        elif 'taxonomy_id' in node.keys() and node['taxonomy_id'] is not None:
+            mangal_taxonomy_info[node['id']] = node['taxonomy_id']
+        else:
+            mangal_taxonomy_info[node['id']] = node['original_name']
+
+    # TODO add ThreadPoolExecutor implementation for taxonomy requests.
+    # TODO consider adding semaphores to limit NCBI concurrent requests.
+    raise NotImplementedError
 
 
 if __name__ == "__main__":
-    test_get_kingdom()
+    net_nodes = taxonomy_request('https://mangal.io/api/v2/node?network_id=27')
+    get_nodes_kingdom(net_nodes.json())

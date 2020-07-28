@@ -24,7 +24,7 @@ def mangal_request(data_type, query_parameter, request_value, is_query=True):
         request = BY_ID_URL.format(data_type=data_type, value=request_value)
     response = req.get(request)
 
-    if response.status_code != 200:
+    if response.ok:
         raise ConnectionError("request '{0}' failed with error code {1}.".format(request, response.status_code))
     return response.json()
 
