@@ -1,7 +1,7 @@
 import random
-from time import sleep
 import xml.etree.ElementTree as elmt
 from concurrent.futures import ThreadPoolExecutor
+import threading
 
 import requests as req
 
@@ -29,6 +29,10 @@ TAXONOMY_DB = {
 
 
 def taxonomy_request(request):
+    """
+    Base function for all web service requests. Tries to get some info from a given URL,
+    raises a connection error if response is a faulty connection.
+    """
     response = req.get(request)
     if not response.ok:
         raise ConnectionError("request '{0}' failed with error code {1}.".format(request, response.status_code))
@@ -36,6 +40,13 @@ def taxonomy_request(request):
 
 
 def request_by_id(db, species_id):
+    """
+    Switch function to getting taxonomy data by id. Given a species id, and a database
+    this id originates from, adds the appropriate db specific request string, and returns it's
+    response (xml for NCBI, json for all else).
+    :exception EoL is inconsistent in it's ids, and calling it will raise an implementation
+    error
+    """
     if db == 'ncbi':  # special case NCBI XML response
         id_specifier = "efetch.fcgi?db=taxonomy&id={0}".format(species_id)
         return taxonomy_request(TAXONOMY_DB['ncbi'] + str(id_specifier))
@@ -56,9 +67,18 @@ def request_by_id(db, species_id):
 
 
 def request_by_name(db, *args):
-    if db == 'tsn':  # requires multiple queries
+    """
+    Switch function to getting taxonomy data by name. Given a species name, and a database
+    this id originates from, adds the appropriate db specific request string, and returns it's
+    response.
+    :exception EoL is inconsistent in it's ids, and calling it will raise an implementation
+    error;. Furthermore, ITIS and NCBI require an additional web service request to get to
+    the actual taxonomy info, and deemed not worth implementing (will also raise an
+    implementation error)
+    """
+    if db == 'tsn':
         raise NotImplementedError
-    if db == 'eol':  # inconsistent with mangal
+    if db == 'eol':
         raise NotImplementedError
     if db == 'ncbi':
         raise NotImplementedError
@@ -86,16 +106,15 @@ def itis_parse_response(response_json):
 
 
 def bold_parse_response(response_json):
+    if not response_json:
+        return ""
+
     if "taxid" in response_json.keys():
-        # If there is a taxid in the outermost dict, the request was a search by
-        # id, simply return the kingdom.
         try:
             return response_json["tax_division"]
         except KeyError:
             return ""
 
-    # If there's no taxid in the outermost dict, the request was a search by
-    # name and the "highest voted" kingdom is returned.
     kingdom_candidates = dict()
     for _, taxon in response_json.items():
         try:
@@ -188,36 +207,43 @@ def parse_response(db, response):
     return parsers[db](response)
 
 
-def get_mangal_taxonomy_data(tax_id):
-    response = taxonomy_request(MANGAL_TAXONOMY_URL + tax_id).json()
+def get_mangal_taxonomy_data(tax_info):
+    if type(tax_info) is int:
+        tax_info = taxonomy_request(MANGAL_TAXONOMY_URL + tax_info).json()
     id_dict = dict()
     for db in TAXONOMY_DB:
-        id_dict[db] = response[db]
+        if tax_info[db] is not None:
+            id_dict[db] = tax_info[db]
     return id_dict
 
 
-def choose_db(db_counts):
+def choose_db(db_counts, possible_dbs=None):
+    possible_dbs = list(possible_dbs.keys() if type(possible_dbs) is dict else db_counts.keys())
     while True:
-        chosen_db = random.choice(list(db_counts.keys()))
+        chosen_db = random.choice(possible_dbs)
         if chosen_db != 'ncbi' or db_counts[chosen_db] < NCBI_REQUEST_THRESHOLD:
             break
 
     db_counts[chosen_db] = db_counts[chosen_db] + 1
-    print('inc: ' + str(db_counts))
     return chosen_db
 
 
 def get_node_kingdom(tax_info=None, node_id=-1, node_kingdoms={}, db_counts=[]):
-    if type(tax_info) is int:
+    if type(tax_info) is not str:
         tax_info = get_mangal_taxonomy_data(tax_info)
 
-    db = choose_db(db_counts)
-    if type(tax_info) is dict:
-        kingdom = parse_response(db, request_by_id(db, tax_info[db]))
-    else:
-        kingdom = parse_response(db, request_by_name(db, tax_info))
+    db = choose_db(db_counts, tax_info)
+    try:
+        if type(tax_info) is dict:
+            kingdom = parse_response(db, request_by_id(db, tax_info[db]))
+        else:
+            kingdom = parse_response(db, request_by_name(db, tax_info))
+    except (ConnectionError, NotImplementedError) as e:
+        db_counts[db] = db_counts[db] - 1
+        node_kingdoms[node_id] = ""
+        return
+
     db_counts[db] = db_counts[db] - 1
-    print('dec: ' + str(db_counts))
     node_kingdoms[node_id] = kingdom
 
 
@@ -235,11 +261,13 @@ def get_nodes_kingdom(nodes):
     db_concurrent_users = {db: 0 for db in TAXONOMY_DB.keys()}
     with ThreadPoolExecutor(max_workers=5) as executor:
         for tid, tax_info in mangal_taxonomy_info.items():
-            f = executor.submit(get_node_kingdom, tax_info=tax_info, node_id=tid,
-                                node_kingdoms=node_kingdoms, db_counts=db_concurrent_users)
+            executor.submit(get_node_kingdom, tax_info=tax_info, node_id=tid,
+                            node_kingdoms=node_kingdoms, db_counts=db_concurrent_users)
+    print(db_concurrent_users)
     return node_kingdoms
 
 
 if __name__ == "__main__":
     net_nodes = taxonomy_request('https://mangal.io/api/v2/node?network_id=27')
-    print(get_nodes_kingdom(net_nodes.json()))
+    for tid, kingdom in get_nodes_kingdom(net_nodes.json()).items():
+        print("{0} :: {1}".format(tid, kingdom))

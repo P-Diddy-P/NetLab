@@ -9,7 +9,6 @@ import openpyxl
     
     (*1) Transposition assumes plants are rows in all WoL files according
     to cursory check.
-    
 """
 
 WOL_DIR = "C:\\Personal\\University\\Lab\\WoL"
