@@ -1,58 +1,90 @@
+import re
+
 import requests as req
 import openpyxl
 
-from taxonomy_info import get_kingdom
+from taxonomy_info import get_nodelist_kingdoms
 
 """
     Parses network using the mangal web API, and converts them to the IWDB format,
     with metadata posted at the start of the worksheet.
 """
 
-# TODO not all species in mangal are named and identified correctly, so in order to
-# TODO coerce IWDB format, all unidentified species should be derived from their
-# TODO connections
-
 BY_ID_URL = "https://mangal.io/api/v2/{data_type}/{value}"
 QUERY_URL = "https://mangal.io/api/v2/{data_type}?{query_by}={value}"
 SAVE_PATH = "C:\\Personal\\University\\Lab\\Mangal\\{filename}.xlsx"
 
 
-def mangal_request(data_type, query_parameter, request_value, is_query=True):
+def mangal_request(data_type, request_value, query_parameter=None, is_query=True):
     if is_query:
         request = QUERY_URL.format(data_type=data_type, query_by=query_parameter, value=request_value)
     else:
         request = BY_ID_URL.format(data_type=data_type, value=request_value)
     response = req.get(request)
 
-    if response.ok:
+    if not response.ok:
         raise ConnectionError("request '{0}' failed with error code {1}.".format(request, response.status_code))
     return response.json()
 
 
 def get_network_metadata(network_id):
-    # TODO consider slicing only part of the metadata (id, name, desc. etc.)
-    return mangal_request("network", None, network_id, False)
+    return mangal_request("network", network_id, is_query=False)
 
 
 def get_network_vertices(network_id):
-    vertex_json = mangal_request("node", "network_id", network_id)
-    return [{"id": v['id'], "genus": v['original_name'].split(' ')[0],
-             "species": v['original_name'].split(' ')[1]} for v in vertex_json]
+    vertex_json = mangal_request("node", network_id, query_parameter="network_id")
+    node_kingdoms = get_nodelist_kingdoms(vertex_json)
+    return [{"id": v['id'], "name": v['original_name'],
+             "kingdom": node_kingdoms[v['id']]} for v in vertex_json]
 
 
 def get_network_edges(network_id):
-    edge_json = mangal_request("interaction", "network_id", network_id)
+    edge_json = mangal_request("interaction", network_id, query_parameter="network_id")
     edge_dict = dict()
     for e in edge_json:
-        if (e['node_from'], e['node_to']) in edge_dict:
-            raise AssertionError("Multiple edges from {} to {}".format(
-                e['node_from'], e['node_to']))
-        if e['value'] == 0:
-            raise AssertionError("Edge from {} to {} has value 0".format(
-                e['node_from'], e['node_to']))
+        assert (e['node_from'], e['node_to']) not in edge_dict, \
+            "Multiple edges from {} to {}".format(e['node_from'], e['node_to'])
+        assert e['value'] != 0, \
+            "Edge from {} to {} has value 0".format(e['node_from'], e['node_to'])
 
         edge_dict[(e['node_from'], e['node_to'])] = e['value']
     return edge_dict
+
+
+def construct_adjacency_list(adjacency_matrix):
+    network_adjacency = dict()
+    for src, dest in adjacency_matrix.keys():
+        if src in network_adjacency:
+            network_adjacency[src].append(dest)
+        else:
+            network_adjacency[src] = [dest]
+
+        if dest in network_adjacency:
+            network_adjacency[dest].append(src)
+        else:
+            network_adjacency[dest] = [src]
+
+    return network_adjacency
+
+
+def complete_kingdoms_by_interactions(vertices, edges):
+    network_adjacency = construct_adjacency_list(edges)
+    unresolved_vertices = len(vertices)
+    current_unresolved = len({v['id'] if v['kingdom'] else '' for v in vertices} - {''})
+
+    while unresolved_vertices > current_unresolved > 0:
+        unresolved_vertices = current_unresolved
+        current_unresolved = 0
+        for vertex in vertices:
+            if not vertex['kingdom']:
+                continue
+            vertex_neighbors = network_adjacency[vertex['id']]
+            neighbor_kingdoms = {neighbor['kingdom'] for neighbor in vertex_neighbors} - {""}
+            assert len(neighbor_kingdoms) < 2, "Network is not bipartite!"
+            if not neighbor_kingdoms:
+                current_unresolved += 1
+            else:
+                vertex['kingdom'] = 'Animalia' if 'Plantae' in neighbor_kingdoms else 'Plantae'
 
 
 def fill_table_metadata(sheet, metadata):
@@ -103,20 +135,33 @@ def construct_network_excel(network_id, save_path=SAVE_PATH):
     network_book.save(save_path.format(filename=network_metadata['name']))
 
 
+def is_pollination_network(network_description):
+    including_criteria = ['pol[li]{1,3}nat', 'flower.+visit', 'flower.+interaction']
+    excluding_criteria = ['food.web', 'pelagic', 'predat']
+
+    included = any([re.search(pat, network_description.lower()) is not None for pat in including_criteria])
+    excluded = any([re.search(pat, network_description.lower()) is not None for pat in excluding_criteria])
+    return included and not excluded
+
+
 def get_network_iterator():
     page = 0
-    network_page = mangal_request("network", "page", page)
+    network_page = mangal_request("network", page, query_parameter="page")
     while network_page:
-        for net in network_page:
-            yield net
+        for network in network_page:
+            if is_pollination_network(network['description']):
+                yield network
         page += 1
-        network_page = mangal_request("network", "page", page)
+        network_page = mangal_request("network", page, query_parameter="page")
 
 
 if __name__ == "__main__":
+    for vertex in get_network_vertices(27):
+        print(vertex)
+    """
     acc = 0
     for net in get_network_iterator():
-        if "poll" in net['description']:
-            construct_network_excel(net['id'])
-            acc += 1
+        print("{0} :: {1}".format(net['id'], net['description']))
+        acc += 1
     print(acc)
+    """

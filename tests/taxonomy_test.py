@@ -52,7 +52,7 @@ class FullNetworkTaxonomy(unittest.TestCase):
     def test_full_network(self):
         # hijacking taxonomy_request to get the nodes of network 1295 (has only 5 nodes)
         net_nodes = taxonomy_request('https://mangal.io/api/v2/node?network_id=1295')
-        node_kingdoms = get_nodes_kingdom(net_nodes.json())
+        node_kingdoms = get_nodelist_kingdom(net_nodes.json())
         self.assertEqual(node_kingdoms, {
             19907: 'Plantae',
             19908: 'Plantae',
@@ -63,7 +63,7 @@ class FullNetworkTaxonomy(unittest.TestCase):
 
     def test_network_coverage(self):
         net_nodes = taxonomy_request('https://mangal.io/api/v2/node?network_id=27')
-        self.assertEqual(len(net_nodes.json()), len(get_nodes_kingdom(net_nodes.json())))
+        self.assertEqual(len(net_nodes.json()), len(get_nodelist_kingdom(net_nodes.json())))
 
 
 if __name__ == '__main__':

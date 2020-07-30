@@ -2,6 +2,11 @@ import csv, os
 import openpyxl
 
 """
+    DEPRECATED - WoL will take over as the canonical form for storing networks,
+    as it is easier to work with as a pandas dataframe. Instead, IWDB and mangal
+    will be reformatted to comply to WoL scheme, including having the metadata
+    in a specified folder
+    
     Converts csv files in WoL (Web of Life) format to the chosen IWDB format.
     this means breaking species names to the {genus} {species} format, and 
     transposing the network(*1) from rows=plants and columns=pollinators

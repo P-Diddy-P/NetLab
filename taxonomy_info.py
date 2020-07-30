@@ -1,7 +1,6 @@
 import random
 import xml.etree.ElementTree as elmt
 from concurrent.futures import ThreadPoolExecutor
-import threading
 
 import requests as req
 
@@ -16,6 +15,7 @@ import requests as req
 """
 
 DELIMETER = {'u': "_", 'p': '+'}
+ACCEPTED_KINGDOMS = {'Animalia', 'Plantae'}  # added to disallow special cases like Chromista
 NCBI_REQUEST_THRESHOLD = 5
 
 MANGAL_TAXONOMY_URL = "https://mangal.io/api/v2/taxonomy/"
@@ -244,10 +244,12 @@ def get_node_kingdom(tax_info=None, node_id=-1, node_kingdoms={}, db_counts=[]):
         return
 
     db_counts[db] = db_counts[db] - 1
+    if kingdom not in ACCEPTED_KINGDOMS:
+        node_kingdoms[node_id] = ""
     node_kingdoms[node_id] = kingdom
 
 
-def get_nodes_kingdom(nodes):
+def get_nodelist_kingdoms(nodes):
     mangal_taxonomy_info = dict()
     for node in nodes:
         if 'taxonomy' in node.keys() and node['taxonomy'] is not None:
@@ -263,11 +265,11 @@ def get_nodes_kingdom(nodes):
         for tid, tax_info in mangal_taxonomy_info.items():
             executor.submit(get_node_kingdom, tax_info=tax_info, node_id=tid,
                             node_kingdoms=node_kingdoms, db_counts=db_concurrent_users)
-    print(db_concurrent_users)
+    # print(db_concurrent_users)  # make sure all web service requests were resolved
     return node_kingdoms
 
 
 if __name__ == "__main__":
     net_nodes = taxonomy_request('https://mangal.io/api/v2/node?network_id=27')
-    for tid, kingdom in get_nodes_kingdom(net_nodes.json()).items():
+    for tid, kingdom in get_nodelist_kingdom(net_nodes.json()).items():
         print("{0} :: {1}".format(tid, kingdom))
