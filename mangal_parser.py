@@ -78,13 +78,17 @@ def complete_kingdoms_by_interactions(vertices, edges):
         for vertex in vertices:
             if not vertex['kingdom']:
                 continue
-            vertex_neighbors = network_adjacency[vertex['id']]
+            vertex_neighbors = network_adjacency.get(vertex['id'], [])
+            if not vertex_neighbors:  # in case of isolated nodes, see node 4497 in network 27
+                continue
             neighbor_kingdoms = {neighbor['kingdom'] for neighbor in vertex_neighbors} - {""}
             assert len(neighbor_kingdoms) < 2, "Network is not bipartite!"
             if not neighbor_kingdoms:
                 current_unresolved += 1
             else:
                 vertex['kingdom'] = 'Animalia' if 'Plantae' in neighbor_kingdoms else 'Plantae'
+                print("Vertex {0} given kingdom {1} by connections".format(vertex['original_name'],
+                                                                           vertex['kingdom']))
 
 
 def fill_table_metadata(sheet, metadata):
@@ -156,12 +160,10 @@ def get_network_iterator():
 
 
 if __name__ == "__main__":
-    for vertex in get_network_vertices(27):
-        print(vertex)
-    """
-    acc = 0
-    for net in get_network_iterator():
-        print("{0} :: {1}".format(net['id'], net['description']))
-        acc += 1
-    print(acc)
-    """
+    vertices = get_network_vertices(27)
+    edges = get_network_edges(27)
+    # for vertex, neighbors in construct_adjacency_list(edges).items():
+    #     print("{0} :: {1}".format(vertex, neighbors))
+    for v1, v2 in edges.keys():
+        print("{0} :: {1}".format(v1, v2))
+    complete_kingdoms_by_interactions(vertices, edges)
