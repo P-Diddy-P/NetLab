@@ -54,8 +54,8 @@ def get_network_vertices(network_id):
         raw_vertices.append(vertex_json)
 
     node_kingdoms = get_nodelist_kingdoms(raw_vertices)
-    return [{"id": v['id'], "name": v['original_name'],
-            "kingdom": node_kingdoms[v['id']]} for v in raw_vertices]
+    return {v['id']: {"id": v['id'], "name": v['original_name'],
+            "kingdom": node_kingdoms[v['id']]} for v in raw_vertices}
 
 
 def get_network_edges(network_id):
@@ -89,25 +89,34 @@ def construct_adjacency_list(adjacency_matrix):
 def complete_kingdoms_by_interactions(vertices, edges):
     network_adjacency = construct_adjacency_list(edges)
     unresolved_vertices = len(vertices)
-    current_unresolved = len({v['id'] if v['kingdom'] else '' for v in vertices} - {''})
+    current_unresolved = sum(
+        map(lambda val: 1 if not val['kingdom'] else 0, vertices.values())
+    )
 
+    print("starting completion round with {0} unresolved and {1} completed".format(
+        current_unresolved, unresolved_vertices - current_unresolved
+    ))
     while unresolved_vertices > current_unresolved > 0:
         unresolved_vertices = current_unresolved
         current_unresolved = 0
-        for vertex in vertices:
-            if not vertex['kingdom']:
+
+        for vertex in vertices.values():
+            if vertex['kingdom']:
                 continue
             vertex_neighbors = network_adjacency.get(vertex['id'], [])
-            if not vertex_neighbors:  # in case of isolated nodes, see node 4497 in network 27
-                continue
-            neighbor_kingdoms = {neighbor['kingdom'] for neighbor in vertex_neighbors} - {""}
+            neighbor_kingdoms = {vertices[nid]['kingdom'] for nid in vertex_neighbors} - {''}
             assert len(neighbor_kingdoms) < 2, "Network is not bipartite!"
             if not neighbor_kingdoms:
                 current_unresolved += 1
+                print("No kingdom found for vertex {0}".format(vertex['name']))
             else:
                 vertex['kingdom'] = 'Animalia' if 'Plantae' in neighbor_kingdoms else 'Plantae'
-                print("Vertex {0} given kingdom {1} by connections".format(vertex['original_name'],
+                print("Vertex {0} given kingdom {1} by connections".format(vertex['name'],
                                                                            vertex['kingdom']))
+
+        print("starting completion round with {0} unresolved and {1} completed".format(
+            current_unresolved, unresolved_vertices - current_unresolved
+        ))
 
 
 def fill_table_metadata(sheet, metadata):
@@ -168,9 +177,13 @@ def is_pollination_network(network_description):
 
 
 if __name__ == "__main__":
-    for v in get_network_vertices(27):
-        print(v)
+    network_vertices = get_network_vertices(27)
+    network_edges = get_network_edges(27)
+    for _, vdata in network_vertices.items():
+        print(vdata)
     print("======================================================")
+    print("COMPLETING KINGDOMS FOR NETWORK VERTICES")
+    complete_kingdoms_by_interactions(network_vertices, network_edges)
     print("======================================================")
-    for e, v in get_network_edges(27).items():
-        print("{f} - {t} :: {value}".format(f=e[0], t=e[1], value=v))
+    for _, vdata in network_vertices.items():
+        print(vdata)

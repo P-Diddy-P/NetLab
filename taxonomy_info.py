@@ -100,8 +100,6 @@ def request_by_name(db, *args):
 
 
 def itis_parse_response(response_json):
-    # response will only be from from id search,
-    # no need to consider multiple results
     return response_json["kingdomName"]
 
 
@@ -120,22 +118,20 @@ def bold_parse_response(response_json):
         try:
             taxon_kingdom = taxon["tax_division"]
             kingdom_candidates[taxon_kingdom] = kingdom_candidates.get(taxon_kingdom, 0) + 1
-        except KeyError:
-            pass
+        except (KeyError, TypeError):
+            continue
 
     if len(kingdom_candidates) > 1:
         print("BOLD: multiple possible kingdoms for species: {0}. returning none".format(kingdom_candidates))
         return ""
-    else:
-        print("BOLD: only kingdom is {0}".format(kingdom_candidates))
 
-    selected_kingdom = (None, 0)
+    selected_kingdom = ("", 0)
     for kingdom, votes in kingdom_candidates.items():
         selected_kingdom = selected_kingdom if selected_kingdom[1] > votes else (kingdom, votes)
     return selected_kingdom[0]
 
 
-def eol_parse_response(response):  # response format irrelevant
+def eol_parse_response(response):
     raise NotImplementedError
 
 
@@ -180,8 +176,6 @@ def col_parse_response(response_json):
     if len(kingdom_candidates) > 1:
         print("CoL: multiple possible kingdoms for species: {0}. returning none".format(kingdom_candidates))
         return ""
-    else:
-        print("CoL: only kingdom is {0}".format(kingdom_candidates))
 
     selected_kingdom = ("", 0)
     for kingdom, votes in kingdom_candidates.items():
@@ -265,11 +259,21 @@ def get_nodelist_kingdoms(nodes):
         for tid, tax_info in mangal_taxonomy_info.items():
             executor.submit(get_node_kingdom, tax_info=tax_info, node_id=tid,
                             node_kingdoms=node_kingdoms, db_counts=db_concurrent_users)
-    # print(db_concurrent_users)  # make sure all web service requests were resolved
+    print(db_concurrent_users)  # make sure all web service requests were resolved
     return node_kingdoms
 
 
 if __name__ == "__main__":
-    net_nodes = taxonomy_request('https://mangal.io/api/v2/node?network_id=27')
-    for tid, kingdom in get_nodelist_kingdom(net_nodes.json()).items():
-        print("{0} :: {1}".format(tid, kingdom))
+    kingdom_per_db = dict()
+
+    for db in TAXONOMY_DB:
+        try:
+            kingdom_per_db[db] = parse_response(db, request_by_name(db, "Hylaeus stevensi"))
+        except NotImplementedError:
+            kingdom_per_db[db] = "NotImplemented"
+        except (KeyError, AttributeError):
+            kingdom_per_db[db] = "ParsingError"
+        except ConnectionError as error:
+            raise error("Could not connect to database {0}".format(db))
+
+    print(kingdom_per_db)
