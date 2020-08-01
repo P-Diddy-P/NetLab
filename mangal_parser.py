@@ -10,38 +10,57 @@ from taxonomy_info import get_nodelist_kingdoms
     with metadata posted at the start of the worksheet.
 """
 
-BY_ID_URL = "https://mangal.io/api/v2/{data_type}/{value}"
-QUERY_URL = "https://mangal.io/api/v2/{data_type}?{query_by}={value}"
+MANGAL_URL = "https://mangal.io/api/v2/"
 SAVE_PATH = "C:\\Personal\\University\\Lab\\Mangal\\{filename}.xlsx"
 
 
-def mangal_request(data_type, request_value, query_parameter=None, is_query=True):
-    if is_query:
-        request = QUERY_URL.format(data_type=data_type, query_by=query_parameter, value=request_value)
-    else:
-        request = BY_ID_URL.format(data_type=data_type, value=request_value)
+def mangal_base_request(request_specifier):
+    request = MANGAL_URL + request_specifier
     response = req.get(request)
-
     if not response.ok:
         raise ConnectionError("request '{0}' failed with error code {1}.".format(request, response.status_code))
     return response.json()
 
 
+def mangal_request_by_id(data_type, mangal_id):
+    return mangal_base_request("{data_type}/{value}".format(data_type=data_type, value=mangal_id))
+
+
+def mangal_request_by_query(data_type, query_parameter):
+    query_text = "{data_type}?{query}".format(data_type=data_type,
+                    query="&".join(["=".join([k, str(v)]) for k, v in query_parameter.items()])
+                )
+    return mangal_base_request(query_text)
+
+
+def query_iterator(data_type, query):
+    iter_query = {k: v for k, v in query.items()}
+    iter_query['page'] = 0
+    request_page = mangal_request_by_query(data_type, iter_query)
+    while request_page:
+        for entry in request_page:
+            yield entry
+        iter_query['page'] = iter_query.get('page', 0) + 1
+        request_page = mangal_request_by_query(data_type, iter_query)
+
+
 def get_network_metadata(network_id):
-    return mangal_request("network", network_id, is_query=False)
+    return mangal_request_by_id("network", network_id)
 
 
 def get_network_vertices(network_id):
-    vertex_json = mangal_request("node", network_id, query_parameter="network_id")
-    node_kingdoms = get_nodelist_kingdoms(vertex_json)
+    raw_vertices = []
+    for vertex_json in query_iterator("node", {"network_id": network_id}):
+        raw_vertices.append(vertex_json)
+
+    node_kingdoms = get_nodelist_kingdoms(raw_vertices)
     return [{"id": v['id'], "name": v['original_name'],
-             "kingdom": node_kingdoms[v['id']]} for v in vertex_json]
+            "kingdom": node_kingdoms[v['id']]} for v in raw_vertices]
 
 
 def get_network_edges(network_id):
-    edge_json = mangal_request("interaction", network_id, query_parameter="network_id")
     edge_dict = dict()
-    for e in edge_json:
+    for e in query_iterator("interaction", {"network_id": network_id}):
         assert (e['node_from'], e['node_to']) not in edge_dict, \
             "Multiple edges from {} to {}".format(e['node_from'], e['node_to'])
         assert e['value'] != 0, \
@@ -148,22 +167,10 @@ def is_pollination_network(network_description):
     return included and not excluded
 
 
-def get_network_iterator():
-    page = 0
-    network_page = mangal_request("network", page, query_parameter="page")
-    while network_page:
-        for network in network_page:
-            if is_pollination_network(network['description']):
-                yield network
-        page += 1
-        network_page = mangal_request("network", page, query_parameter="page")
-
-
 if __name__ == "__main__":
-    vertices = get_network_vertices(27)
-    edges = get_network_edges(27)
-    # for vertex, neighbors in construct_adjacency_list(edges).items():
-    #     print("{0} :: {1}".format(vertex, neighbors))
-    for v1, v2 in edges.keys():
-        print("{0} :: {1}".format(v1, v2))
-    complete_kingdoms_by_interactions(vertices, edges)
+    for v in get_network_vertices(27):
+        print(v)
+    print("======================================================")
+    print("======================================================")
+    for e, v in get_network_edges(27).items():
+        print("{f} - {t} :: {value}".format(f=e[0], t=e[1], value=v))
