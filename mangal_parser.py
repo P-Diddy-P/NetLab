@@ -111,8 +111,9 @@ def complete_kingdoms_by_interactions(vertices, edges):
                 print("No kingdom found for vertex {0}".format(vertex['name']))
             else:
                 vertex['kingdom'] = 'Animalia' if 'Plantae' in neighbor_kingdoms else 'Plantae'
-                print("Vertex {0} given kingdom {1} by connections".format(vertex['name'],
-                                                                           vertex['kingdom']))
+                print("Vertex {0} given kingdom {1} by connections {2}".format(vertex['name'],
+                                                                               vertex['kingdom'],
+                                                                               vertex_neighbors))
 
         print("starting completion round with {0} unresolved and {1} completed".format(
             current_unresolved, unresolved_vertices - current_unresolved
