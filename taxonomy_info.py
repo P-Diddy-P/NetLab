@@ -33,7 +33,7 @@ def taxonomy_request(request):
     Base function for all web service requests. Tries to get some info from a given URL,
     raises a connection error if response is a faulty connection.
     """
-    response = req.get(request)
+    response = req.get(request, timeout=8.0)
     if not response.ok:
         raise ConnectionError("request '{0}' failed with error code {1}.".format(request, response.status_code))
     return response
@@ -203,7 +203,7 @@ def parse_response(db, response):
 
 def get_mangal_taxonomy_data(tax_info):
     if type(tax_info) is int:
-        tax_info = taxonomy_request(MANGAL_TAXONOMY_URL + tax_info).json()
+        tax_info = taxonomy_request(MANGAL_TAXONOMY_URL + str(tax_info)).json()
     id_dict = dict()
     for db in TAXONOMY_DB:
         if tax_info[db] is not None:
@@ -266,6 +266,12 @@ def get_nodelist_kingdoms(nodes):
 if __name__ == "__main__":
     kingdom_per_db = dict()
 
+    taxonomy_ids = get_mangal_taxonomy_data(2374)
+    for db, tid in taxonomy_ids.items():
+        print("getting texonomy request from {0} by {1}".format(db, tid))
+        kingdom_per_db[db] = parse_response(db, request_by_id(db, tid))
+
+    """
     for db in TAXONOMY_DB:
         try:
             kingdom_per_db[db] = parse_response(db, request_by_name(db, "Hylaeus stevensi"))
@@ -275,5 +281,6 @@ if __name__ == "__main__":
             kingdom_per_db[db] = "ParsingError"
         except ConnectionError as error:
             raise error("Could not connect to database {0}".format(db))
+    """
 
     print(kingdom_per_db)

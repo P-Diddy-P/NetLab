@@ -177,8 +177,8 @@ def is_pollination_network(network_description):
 
 
 if __name__ == "__main__":
-    network_vertices = get_network_vertices(27)
-    network_edges = get_network_edges(27)
+    network_vertices = get_network_vertices(950)
+    network_edges = get_network_edges(950)
     for _, vdata in network_vertices.items():
         print(vdata)
     print("======================================================")
