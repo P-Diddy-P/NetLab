@@ -93,9 +93,6 @@ def complete_kingdoms_by_interactions(vertices, edges):
         map(lambda val: 1 if not val['kingdom'] else 0, vertices.values())
     )
 
-    print("starting completion round with {0} unresolved and {1} completed".format(
-        current_unresolved, unresolved_vertices - current_unresolved
-    ))
     while unresolved_vertices > current_unresolved > 0:
         unresolved_vertices = current_unresolved
         current_unresolved = 0
@@ -108,16 +105,10 @@ def complete_kingdoms_by_interactions(vertices, edges):
             assert len(neighbor_kingdoms) < 2, "Network is not bipartite!"
             if not neighbor_kingdoms:
                 current_unresolved += 1
-                print("No kingdom found for vertex {0}".format(vertex['name']))
             else:
                 vertex['kingdom'] = 'Animalia' if 'Plantae' in neighbor_kingdoms else 'Plantae'
-                print("Vertex {0} given kingdom {1} by connections {2}".format(vertex['name'],
-                                                                               vertex['kingdom'],
-                                                                               vertex_neighbors))
 
-        print("starting completion round with {0} unresolved and {1} completed".format(
-            current_unresolved, unresolved_vertices - current_unresolved
-        ))
+    return current_unresolved
 
 
 def fill_table_metadata(sheet, metadata):
@@ -178,13 +169,15 @@ def is_pollination_network(network_description):
 
 
 if __name__ == "__main__":
-    network_vertices = get_network_vertices(950)
-    network_edges = get_network_edges(950)
-    for _, vdata in network_vertices.items():
-        print(vdata)
-    print("======================================================")
-    print("COMPLETING KINGDOMS FOR NETWORK VERTICES")
-    complete_kingdoms_by_interactions(network_vertices, network_edges)
-    print("======================================================")
-    for _, vdata in network_vertices.items():
-        print(vdata)
+    for network in query_iterator('network', {}):
+        if is_pollination_network(network['description']):
+            nid = network['id']
+            print("working on network {0}: {1}".format(nid, network['description']))
+            nvertices = get_network_vertices(nid)
+            nedges = get_network_edges(nid)
+
+            try:
+                print("{0} missing vertices for network {1}".format(
+                    complete_kingdoms_by_interactions(nvertices, nedges), nid))
+            except AssertionError as e:
+                print('network {0} error: {1}'.format(network['id'], e))

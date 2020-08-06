@@ -33,7 +33,7 @@ def taxonomy_request(request):
     Base function for all web service requests. Tries to get some info from a given URL,
     raises a connection error if response is a faulty connection.
     """
-    response = req.get(request, timeout=8.0)
+    response = req.get(request, timeout=5.0)
     if not response.ok:
         raise ConnectionError("request '{0}' failed with error code {1}.".format(request, response.status_code))
     return response
@@ -232,7 +232,7 @@ def get_node_kingdom(tax_info=None, node_id=-1, node_kingdoms={}, db_counts=[]):
             kingdom = parse_response(db, request_by_id(db, tax_info[db]))
         else:
             kingdom = parse_response(db, request_by_name(db, tax_info))
-    except (ConnectionError, NotImplementedError) as e:
+    except (ConnectionError, NotImplementedError, req.exceptions.Timeout) as e:
         db_counts[db] = db_counts[db] - 1
         node_kingdoms[node_id] = ""
         return
@@ -265,22 +265,20 @@ def get_nodelist_kingdoms(nodes):
 
 if __name__ == "__main__":
     kingdom_per_db = dict()
-
+    """
     taxonomy_ids = get_mangal_taxonomy_data(2374)
     for db, tid in taxonomy_ids.items():
         print("getting texonomy request from {0} by {1}".format(db, tid))
         kingdom_per_db[db] = parse_response(db, request_by_id(db, tid))
-
     """
     for db in TAXONOMY_DB:
         try:
-            kingdom_per_db[db] = parse_response(db, request_by_name(db, "Hylaeus stevensi"))
+            kingdom_per_db[db] = parse_response(db, request_by_name(db, "Leptura vittata"))
         except NotImplementedError:
             kingdom_per_db[db] = "NotImplemented"
         except (KeyError, AttributeError):
             kingdom_per_db[db] = "ParsingError"
-        except ConnectionError as error:
-            raise error("Could not connect to database {0}".format(db))
-    """
+        except (ConnectionError, req.exceptions.Timeout) as error:
+            kingdom_per_db[db] = "ConnectionError"
 
     print(kingdom_per_db)

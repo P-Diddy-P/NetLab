@@ -2,7 +2,7 @@ import unittest
 from mangal_parser import *
 
 
-class MyTestCase(unittest.TestCase):
+class NetworkKingdomCompletion(unittest.TestCase):
     def test_invalid_networks(self):
         faux_vertices = {
             '5': {'id': '5', 'name': 'v5', 'kingdom': ''},
