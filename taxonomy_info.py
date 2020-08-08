@@ -26,6 +26,7 @@ TAXONOMY_DB = {
     'col': "http://webservice.catalogueoflife.org/col/",
     'gbif': "https://api.gbif.org/v1/species/"
 }
+INVALID_TAX = 'notax'
 
 
 def taxonomy_request(request):
@@ -208,7 +209,11 @@ def get_mangal_taxonomy_data(tax_info):
     for db in TAXONOMY_DB:
         if tax_info[db] is not None:
             id_dict[db] = tax_info[db]
-    return id_dict
+
+    if all([db_id is None for db_id in id_dict]):
+        return tax_info['name']
+    else:
+        return id_dict
 
 
 def choose_db(db_counts, possible_dbs=None):
@@ -228,7 +233,9 @@ def get_node_kingdom(tax_info=None, node_id=-1, node_kingdoms={}, db_counts=[]):
 
     db = choose_db(db_counts, tax_info)
     try:
-        if type(tax_info) is dict:
+        if tax_info == INVALID_TAX:
+            kingdom = ""
+        elif type(tax_info) is dict:
             kingdom = parse_response(db, request_by_id(db, tax_info[db]))
         else:
             kingdom = parse_response(db, request_by_name(db, tax_info))
@@ -266,7 +273,7 @@ def get_nodelist_kingdoms(nodes):
 if __name__ == "__main__":
     kingdom_per_db = dict()
     """
-    taxonomy_ids = get_mangal_taxonomy_data(2374)
+    taxonomy_ids = get_mangal_taxonomy_data(6066)
     for db, tid in taxonomy_ids.items():
         print("getting texonomy request from {0} by {1}".format(db, tid))
         kingdom_per_db[db] = parse_response(db, request_by_id(db, tid))
