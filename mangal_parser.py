@@ -40,7 +40,7 @@ def query_iterator(data_type, query):
     while request_page:
         for entry in request_page:
             yield entry
-        iter_query['page'] = iter_query.get('page', 0) + 1
+        iter_query['page'] = iter_query['page'] + 1
         request_page = mangal_request_by_query(data_type, iter_query)
 
 
@@ -61,12 +61,17 @@ def get_network_vertices(network_id):
 def get_network_edges(network_id):
     edge_dict = dict()
     for e in query_iterator("interaction", {"network_id": network_id}):
-        assert (e['node_from'], e['node_to']) not in edge_dict, \
-            "Multiple edges from {} to {}".format(e['node_from'], e['node_to'])
-        assert e['value'] != 0, \
-            "Edge from {} to {} has value 0".format(e['node_from'], e['node_to'])
+        e_from = e['node_from']
+        e_to = e['node_to']
+        existing_id = edge_dict.get((e_from, e_to), -1)
 
-        edge_dict[(e['node_from'], e['node_to'])] = e['value']
+        assert existing_id != e['id'], \
+            "Multiple edges from {0} to {1}, keys {2} and {3}".format(
+                e_from, e_to, e['id'], existing_id)
+        assert e['value'] != 0, "Edge from {} to {} has value 0".format(e_from, e_to)
+
+        edge_dict[(e['node_from'], e['node_to'])] = {'value': e['value'],
+                                                     'edge_id': e['id']}
     return edge_dict
 
 
@@ -102,7 +107,9 @@ def complete_kingdoms_by_interactions(vertices, edges):
                 continue
             vertex_neighbors = network_adjacency.get(vertex['id'], [])
             neighbor_kingdoms = {vertices[nid]['kingdom'] for nid in vertex_neighbors} - {''}
-            assert len(neighbor_kingdoms) < 2, "Network is not bipartite!"
+            assert len(neighbor_kingdoms) < 2, "Network is not bipartite for vertex {0}".format(
+                vertex['id'])
+
             if not neighbor_kingdoms:
                 current_unresolved += 1
             else:
@@ -169,15 +176,18 @@ def is_pollination_network(network_description):
 
 
 if __name__ == "__main__":
+    nedges = get_network_edges(23)
+
     for network in query_iterator('network', {}):
         if is_pollination_network(network['description']):
             nid = network['id']
             print("working on network {0}: {1}".format(nid, network['description']))
-            nvertices = get_network_vertices(nid)
-            nedges = get_network_edges(nid)
-
             try:
+                nvertices = get_network_vertices(nid)
+                nedges = get_network_edges(nid)
                 print("{0} missing vertices for network {1}".format(
-                    complete_kingdoms_by_interactions(nvertices, nedges), nid))
+                    complete_kingdoms_by_interactions(nvertices, nedges), nid
+                ))
             except AssertionError as e:
                 print('network {0} error: {1}'.format(network['id'], e))
+            print("=================================================")
