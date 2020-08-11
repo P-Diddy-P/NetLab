@@ -11,7 +11,8 @@ from taxonomy_info import get_nodelist_kingdoms
 """
 
 MANGAL_URL = "https://mangal.io/api/v2/"
-SAVE_PATH = "C:\\Personal\\University\\Lab\\Mangal\\{filename}.xlsx"
+NAME_TEMPLATE = "[{0}]-{1}"
+SAVE_PATH = "/home/userors/academics/netlab/mangal"
 
 
 def mangal_base_request(request_specifier):
@@ -118,54 +119,6 @@ def complete_kingdoms_by_interactions(vertices, edges):
     return current_unresolved
 
 
-def fill_table_metadata(sheet, metadata):
-    sheet['A1'] = str(metadata)
-    sheet['C1'] = "plant_ge"
-    sheet['C2'] = "plant_sp"
-    sheet['C3'] = "no."
-    sheet['A3'] = "pol_ge"
-    sheet['B3'] = "pol_sp"
-
-
-def fill_table_vertices(sheet, vertex_list):
-    sheet_index = 4  # note that ws.cell function is 1 indexed
-    for v in vertex_list:
-        sheet.cell(row=sheet_index, column=1, value=v['genus'])
-        sheet.cell(row=sheet_index, column=2, value=v['species'])
-        sheet.cell(row=sheet_index, column=3, value=v['id'])
-
-        sheet.cell(row=1, column=sheet_index, value=v['genus'])
-        sheet.cell(row=2, column=sheet_index, value=v['species'])
-        sheet.cell(row=3, column=sheet_index, value=v['id'])
-
-        sheet_index += 1
-
-
-def fill_table_edges(sheet, edge_dict, row_length):
-    for i in range(4, 4 + row_length):
-        for j in range(4, 4 + row_length):
-            pair_id = sheet.cell(row=i, column=3).value, sheet.cell(row=3, column=j).value
-            sheet.cell(row=i, column=j, value=edge_dict.get(pair_id, 0))
-
-
-def construct_network_excel(network_id, save_path=SAVE_PATH):
-    try:
-        network_metadata = get_network_metadata(network_id)
-        network_vertices = get_network_vertices(network_id)
-        network_edges = get_network_edges(network_id)
-    except AssertionError:
-        print("Error parsing network ", network_id)
-        raise
-
-    network_book = openpyxl.Workbook()
-    network_sheet = network_book.active
-
-    fill_table_metadata(network_sheet, network_metadata)
-    fill_table_vertices(network_sheet, network_vertices)
-    fill_table_edges(network_sheet, network_edges, len(network_vertices))
-    network_book.save(save_path.format(filename=network_metadata['name']))
-
-
 def is_pollination_network(network_description):
     including_criteria = ['pol[li]{1,3}nat', 'flower.+visit', 'flower.+interaction']
     excluding_criteria = ['food.web', 'pelagic', 'predat']
@@ -175,19 +128,35 @@ def is_pollination_network(network_description):
     return included and not excluded
 
 
-if __name__ == "__main__":
-    nedges = get_network_edges(23)
+def network_to_csv(vertices, edges, network_id):
+    network_metadata = get_network_metadata(network_id)
+    network_filename = NAME_TEMPLATE.format(network_id, network_metadata['name'])
 
+    # TODO rows=plants and columns=pollinators
+    pollinator_headers = []
+    plant_headers = []
+    with open(SAVE_PATH + network_filename, 'w+', newline='') as net_csv:
+        net_csv.writerow([len(edges)].extend(pollinator_headers))
+
+        raise NotImplementedError
+
+
+if __name__ == "__main__":
     for network in query_iterator('network', {}):
-        if is_pollination_network(network['description']):
-            nid = network['id']
-            print("working on network {0}: {1}".format(nid, network['description']))
-            try:
-                nvertices = get_network_vertices(nid)
-                nedges = get_network_edges(nid)
-                print("{0} missing vertices for network {1}".format(
-                    complete_kingdoms_by_interactions(nvertices, nedges), nid
-                ))
-            except AssertionError as e:
-                print('network {0} error: {1}'.format(network['id'], e))
-            print("=================================================")
+        if not is_pollination_network(network['description']):
+            continue
+
+        nid = network['id']
+        print("working on network {0}: {1}".format(nid, network['description']))
+        try:
+            nvertices = get_network_vertices(nid)
+            nedges = get_network_edges(nid)
+            print("{0} missing vertices for network {1}".format(
+                complete_kingdoms_by_interactions(nvertices, nedges), nid
+            ))
+            for v in nvertices.values():
+                if not v['kingdom']:
+                    print(v)
+        except AssertionError as e:
+            print('network {0} error: {1}'.format(network['id'], e))
+        print("=================================================")
