@@ -13,8 +13,7 @@ from taxonomy_info import get_nodelist_kingdoms
 """
 
 MANGAL_URL = "https://mangal.io/api/v2/"
-TAX_TEMPLATE = "[{0}]"
-TAX_PATH = "/home/userors/academics/netlab/mangal/taxonomy"
+PROJECT_PATH = "/home/userors/academics/netlab/mangal"
 
 
 def mangal_base_request(request_specifier):
@@ -51,7 +50,7 @@ def mangal_request_by_query(data_type, query_parameter):
     :return: mangal response as a json dictionary.
     """
     query_text = "{data_type}?{query}".format(data_type=data_type,
-        query="&".join(["=".join([k, str(v)]) for k, v in query_parameter.items()])
+        query="&".join(["=".join([key, str(val)]) for key, val in query_parameter.items()])
     )
     return mangal_base_request(query_text)
 
@@ -83,20 +82,24 @@ def get_network_metadata(network_id):
     return mangal_request_by_id("network", network_id)
 
 
-def get_network_vertices(network_id):
+def get_network_nodes(network_id, node_kingdoms=None, force_web=False):
     """
     gets all vertices of a network, finding their kingdom either from a file
     or from requests to taxonomic web services.
     :param network_id: network id of the requested nodes.
+    :param node_kingdoms: a preloaded dictionary of node kingdoms. If no such dictionary exists,
+    a new one will be generated from taxonomy web services.
+    :param force_web: set to true to force using web services for node kingdoms.
     :return: a list of nodes as dictionaries (not namedtuples for kingdom completion mutability)
     """
-    raw_vertices = []
-    for vertex_json in query_iterator("node", {"network_id": network_id}):
-        raw_vertices.append(vertex_json)
+    raw_nodes = []
+    for node_json in query_iterator("node", {"network_id": network_id}):
+        raw_nodes.append(node_json)
 
-    node_kingdoms = get_nodelist_kingdoms(raw_vertices)
-    return {v['id']: {"id": v['id'], "name": v['original_name'],
-            "kingdom": node_kingdoms[v['id']]} for v in raw_vertices}
+    if force_web or not node_kingdoms:
+        node_kingdoms = get_nodelist_kingdoms(raw_nodes)
+    return {node['id']: {"id": node['id'], "name": node['original_name'],
+            "kingdom": node_kingdoms.get(node['id'], '')} for node in raw_nodes}
 
 
 def get_network_edges(network_id):
@@ -109,8 +112,8 @@ def get_network_edges(network_id):
     """
     edge_dict = dict()
     for e in query_iterator("interaction", {"network_id": network_id}):
-        e_from = e['node_from']
-        e_to = e['node_to']
+        e_from = e['node_to']
+        e_to = e['node_from']
         existing_id = edge_dict.get((e_from, e_to), -1)
 
         assert existing_id != e['id'], \
@@ -118,7 +121,6 @@ def get_network_edges(network_id):
                 e_from, e_to, e['id'], existing_id)
         assert e['value'] != 0, "Edge from {} to {} has value 0".format(e_from, e_to)
 
-        # TODO consider changing edge_dict to frozenset keys.
         edge_dict[(e['node_from'], e['node_to'])] = {'value': e['value'],
                                                      'edge_id': e['id']}
     return edge_dict
@@ -146,31 +148,31 @@ def construct_adjacency_list(adjacency_matrix):
     return network_adjacency
 
 
-def complete_kingdoms_by_interactions(vertices, edges):
+def complete_kingdoms_by_interactions(nodes, edges):
     """
     Leverages the plant-pollinator network's bipartite structure to complete the kingdom
     classification of nodes with no kingdom. In case the network is not bipartite, it is
     not a valid plant-pollinator network and an assertion error is raised.
-    :param vertices: network vertices
+    :param nodes: network vertices
     :param edges: network edges
     :return: the number of nodes still missing a kingdom after inferring by
     interactions.
     """
     network_adjacency = construct_adjacency_list(edges)
-    unresolved_vertices = len(vertices)
+    unresolved_nodes = len(nodes)
     current_unresolved = sum(
-        map(lambda val: 1 if not val['kingdom'] else 0, vertices.values())
+        map(lambda val: 1 if not val['kingdom'] else 0, nodes.values())
     )
 
-    while unresolved_vertices > current_unresolved > 0:
-        unresolved_vertices = current_unresolved
+    while unresolved_nodes > current_unresolved > 0:
+        unresolved_nodes = current_unresolved
         current_unresolved = 0
 
-        for vertex in vertices.values():
+        for vertex in nodes.values():
             if vertex['kingdom']:
                 continue
-            vertex_neighbors = network_adjacency.get(vertex['id'], [])
-            neighbor_kingdoms = {vertices[nid]['kingdom'] for nid in vertex_neighbors} - {''}
+            node_neighbors = network_adjacency.get(vertex['id'], [])
+            neighbor_kingdoms = {nodes[nid]['kingdom'] for nid in node_neighbors} - {''}
             assert len(neighbor_kingdoms) < 2, "Network is not bipartite for vertex {0}".format(
                 vertex['id'])
 
@@ -198,22 +200,84 @@ def is_pollination_network(network_description):
     return included and not excluded
 
 
+def load_network_taxonomy(network_id):
+    """
+    Loads a network's taxonomy data from file (if one exists).
+    :param network_id: network id of the loaded nodes.
+    :return: a dictionary of node ids mapped to kingdom if a
+    taxonomy file exists, otherwise None.
+    """
+    taxonomy_dir = pathlib.Path(PROJECT_PATH).joinpath('taxonomy')
+    taxonomy_filename = 'net{0}'.format(network_id)
+    if taxonomy_filename not in os.listdir(taxonomy_dir):
+        return
+
+    taxonomy_dict = dict()
+    with open(taxonomy_dir.joinpath(taxonomy_filename), 'r') as tax_file:
+        plant_line = tax_file.readline()[:-1]
+        for node_id in plant_line.split('|'):
+            taxonomy_dict[int(node_id)] = 'Plantae'
+
+        pollinator_line = tax_file.readline()[:-1]
+        for node_id in pollinator_line.split('|'):
+            taxonomy_dict[int(node_id)] = 'Animalia'
+
+        unknown_line = tax_file.readline()[:-1]
+        for node_id in unknown_line.split('|'):
+            if node_id:
+                taxonomy_dict[int(node_id)] = ''
+    return taxonomy_dict
+
+
+def store_network_taxonomy(network_id, network_nodes):
+    """
+    stores a network's taxonomy data in a file as node ids separated
+    by pipe (|) characters. First row is for plants, second for pollinators
+    and third for nodes with unknown taxonomy. After storing, the taxonomy
+    data can be completed manually.
+    :param network_id: network id of the stored vertices.
+    :param network_nodes: a list of vertices with taxonomy data
+    """
+    plants, pollinators, unknowns = [], [], []
+    for node in network_nodes.values():
+        store_id = str(node['id'])
+        if node['kingdom'] == 'Plantae':
+            plants.append(store_id)
+        elif node['kingdom'] == 'Animalia':
+            pollinators.append(store_id)
+        else:  # no known kingdom for node.
+            unknowns.append(store_id)
+
+    store_path = pathlib.Path(PROJECT_PATH).joinpath('taxonomy', 'net{0}'.format(network_id))
+    with open(store_path, 'w+') as store_file:
+        store_file.write('|'.join(plants) + '\n')
+        store_file.write('|'.join(pollinators) + '\n')
+        store_file.write('|'.join(unknowns) + '\n')
+
+
+def construct_network(network_id, force_web=False):
+    preloaded_kingdoms = load_network_taxonomy(network_id)
+    net_nodes = get_network_nodes(
+        network_id, node_kingdoms=preloaded_kingdoms, force_web=force_web
+    )
+    net_edges = get_network_edges(network_id)
+    if force_web or not preloaded_kingdoms:
+        complete_kingdoms_by_interactions(net_nodes, net_edges)
+        store_network_taxonomy(network_id, net_nodes)
+
+    return net_nodes, net_edges
+
+
 if __name__ == "__main__":
     for network in query_iterator('network', {}):
-        if not is_pollination_network(network['description']):
+        if not is_pollination_network(network['description']) \
+                or network['id'] == 19:  # TODO remove after testing store/load/csv
             continue
 
         nid = network['id']
         print("working on network {0}: {1}".format(nid, network['description']))
         try:
-            nvertices = get_network_vertices(nid)
-            nedges = get_network_edges(nid)
-            print("{0} missing vertices for network {1}".format(
-                complete_kingdoms_by_interactions(nvertices, nedges), nid
-            ))
-            for v in nvertices.values():
-                if not v['kingdom']:
-                    print(v)
+            construct_network(nid)
         except AssertionError as e:
             print('network {0} error: {1}'.format(network['id'], e))
         print("=================================================")

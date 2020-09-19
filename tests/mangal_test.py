@@ -95,5 +95,21 @@ class NetworkKingdomCompletion(unittest.TestCase):
                          expected_result)
 
 
+class NetworkIO(unittest.TestCase):
+    def test_taxonomy_load_store(self):
+        """
+        Tests mangal taxonomy load and store operations. Loading a network's
+        taxonomy from file should be equivalent to getting it from web services
+        then filling missing kingdoms from network structure (assuming no manual
+        intervention).
+        """
+        self.maxDiff = None
+        nodes_web, edges_web = construct_network(955, force_web=True)
+        nodes_file, edges_file = construct_network(955, force_web=False)
+
+        self.assertEqual(nodes_web, nodes_file)
+        self.assertEqual(edges_web, edges_file)
+
+
 if __name__ == '__main__':
     unittest.main()
