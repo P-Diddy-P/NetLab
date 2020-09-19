@@ -4,6 +4,10 @@ from mangal_parser import *
 
 class NetworkKingdomCompletion(unittest.TestCase):
     def test_invalid_networks(self):
+        """
+        Test mangal_parser raising alerts for non-bipartite networks encountered.
+        In this case the parser should raise an assertion error.
+        """
         faux_vertices = {
             '5': {'id': '5', 'name': 'v5', 'kingdom': ''},
             '4': {'id': '4', 'name': 'v4', 'kingdom': ''},
@@ -23,6 +27,12 @@ class NetworkKingdomCompletion(unittest.TestCase):
             complete_kingdoms_by_interactions(faux_vertices, faux_edges)
 
     def test_isolated_components(self):
+        """
+        Test how mangal_parser handles a graph with two components when
+        there is no taxonomy information about any node in one component.
+        In this case the parser should complete the kingdom in whatever components
+        it can, leaving the unknown component untouched.
+        """
         faux_vertices = {
             '1': {'id': '1', 'name': 'v1', 'kingdom': ''},
             '2': {'id': '2', 'name': 'v2', 'kingdom': ''},
@@ -54,6 +64,11 @@ class NetworkKingdomCompletion(unittest.TestCase):
                          expected_result)
 
     def test_multiple_cycle_completion(self):
+        """
+        Test mangal_parser handling of networks which require multiple rounds
+        of inferring kingdoms by edge connections to classify all nodes by kingdom.
+        In this case the network should be wholly classified after 4 completion cycles.
+        """
         faux_vertices = {
             '5': {'id': '5', 'name': 'v5', 'kingdom': ''},
             '4': {'id': '4', 'name': 'v4', 'kingdom': ''},
