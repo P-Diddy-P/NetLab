@@ -1,9 +1,10 @@
 import re
 import os
 import pathlib
+import csv
 
 import requests as req
-import csv
+import pandas as pd
 
 from taxonomy_info import get_nodelist_kingdoms
 
@@ -111,18 +112,18 @@ def get_network_edges(network_id):
     :return: a dictionary of edges by node pairs.
     """
     edge_dict = dict()
-    for e in query_iterator("interaction", {"network_id": network_id}):
-        e_from = e['node_to']
-        e_to = e['node_from']
-        existing_id = edge_dict.get((e_from, e_to), -1)
+    for edge in query_iterator("interaction", {"network_id": network_id}):
+        e_from = edge['node_to']
+        e_to = edge['node_from']
+        existing_id = edge_dict.get(frozenset((e_from, e_to)), -1)
 
-        assert existing_id != e['id'], \
+        assert existing_id != edge['id'], \
             "Multiple edges from {0} to {1}, keys {2} and {3}".format(
-                e_from, e_to, e['id'], existing_id)
-        assert e['value'] != 0, "Edge from {} to {} has value 0".format(e_from, e_to)
+                e_from, e_to, edge['id'], existing_id)
+        assert edge['value'] != 0, "Edge from {} to {} has value 0".format(e_from, e_to)
 
-        edge_dict[(e['node_from'], e['node_to'])] = {'value': e['value'],
-                                                     'edge_id': e['id']}
+        edge_dict[frozenset((edge['node_from'], edge['node_to']))] = \
+            {'value': edge['value'], 'edge_id': edge['id']}
     return edge_dict
 
 
@@ -135,6 +136,7 @@ def construct_adjacency_list(adjacency_matrix):
     """
     network_adjacency = dict()
     for src, dest in adjacency_matrix.keys():
+        print(src, dest)
         if src in network_adjacency:
             network_adjacency[src].append(dest)
         else:
@@ -168,18 +170,18 @@ def complete_kingdoms_by_interactions(nodes, edges):
         unresolved_nodes = current_unresolved
         current_unresolved = 0
 
-        for vertex in nodes.values():
-            if vertex['kingdom']:
+        for node in nodes.values():
+            if node['kingdom']:
                 continue
-            node_neighbors = network_adjacency.get(vertex['id'], [])
-            neighbor_kingdoms = {nodes[nid]['kingdom'] for nid in node_neighbors} - {''}
+            node_neighbors = network_adjacency.get(node['id'], [])
+            neighbor_kingdoms = {nodes[neighbor]['kingdom'] for neighbor in node_neighbors} - {''}
             assert len(neighbor_kingdoms) < 2, "Network is not bipartite for vertex {0}".format(
-                vertex['id'])
+                node['id'])
 
             if not neighbor_kingdoms:
                 current_unresolved += 1
             else:
-                vertex['kingdom'] = 'Animalia' if 'Plantae' in neighbor_kingdoms else 'Plantae'
+                node['kingdom'] = 'Animalia' if 'Plantae' in neighbor_kingdoms else 'Plantae'
 
     return current_unresolved
 
@@ -255,6 +257,31 @@ def store_network_taxonomy(network_id, network_nodes):
         store_file.write('|'.join(unknowns) + '\n')
 
 
+def network_to_csv(nodes, edges, net_id):
+    """
+    converts the network into a pandas friendly csv format. The format conforms
+    to WoL csv format with plants as rows starts and pollinators as column heads
+    :param nodes: node list of the selected network.
+    :param edges: interaction dict of the selected network.
+    :param net_id: mangal id of the selected network.
+    """
+    csv_path = pathlib.Path(PROJECT_PATH).joinpath('netcsv', 'net{0}.csv'.format(net_id))
+    plant_nodes = [nodes[nid] for nid in nodes if nodes[nid]['kingdom'] == 'Plantae']
+    pollinator_nodes = [nodes[nid] for nid in nodes if nodes[nid]['kingdom'] == 'Animalia']
+    with open(csv_path, 'w+', newline='') as csvfile:
+        net_writer = csv.writer(csvfile, delimiter=',')
+        net_writer.writerow([''] + [poll['name'] for poll in pollinator_nodes])
+        for plant in plant_nodes:
+            plant_row = [plant['name']]
+            for poll in pollinator_nodes:
+                node_pair = frozenset((plant['id'], poll['id']))
+                edge_value = 0
+                if node_pair in edges:
+                    plant_row.append(edges[node_pair]['value'])
+                plant_row.append(edge_value)
+            net_writer.writerow(plant_row)
+
+
 def construct_network(network_id, force_web=False):
     preloaded_kingdoms = load_network_taxonomy(network_id)
     net_nodes = get_network_nodes(
@@ -262,16 +289,24 @@ def construct_network(network_id, force_web=False):
     )
     net_edges = get_network_edges(network_id)
     if force_web or not preloaded_kingdoms:
-        complete_kingdoms_by_interactions(net_nodes, net_edges)
+        missing_kingdoms = complete_kingdoms_by_interactions(net_nodes, net_edges)
         store_network_taxonomy(network_id, net_nodes)
+    else:
+        missing_kingdoms = sum(
+            map(lambda val: 1 if not val['kingdom'] else 0, net_nodes.values())
+        )
 
+    assert missing_kingdoms < 1, "network {0} has {1} nodes with no kingdom." \
+                                 "Can't write to csv".format(network_id, missing_kingdoms)
+    network_to_csv(net_nodes, net_edges, network_id)
     return net_nodes, net_edges
 
 
 if __name__ == "__main__":
+    construct_network(27)
+    """
     for network in query_iterator('network', {}):
-        if not is_pollination_network(network['description']) \
-                or network['id'] == 19:  # TODO remove after testing store/load/csv
+        if not is_pollination_network(network['description']) or network['id'] == 19:
             continue
 
         nid = network['id']
@@ -279,5 +314,8 @@ if __name__ == "__main__":
         try:
             construct_network(nid)
         except AssertionError as e:
+            print(">>>>>>>>>>>>>>>>>>")
             print('network {0} error: {1}'.format(network['id'], e))
+            print("<<<<<<<<<<<<<<<<<<")
         print("=================================================")
+    """
