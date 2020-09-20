@@ -4,7 +4,6 @@ import pathlib
 import csv
 
 import requests as req
-import pandas as pd
 
 from taxonomy_info import get_nodelist_kingdoms
 
