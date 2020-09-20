@@ -200,20 +200,20 @@ def is_pollination_network(network_description):
     return included and not excluded
 
 
-def load_network_taxonomy(network_id):
+def load_network_taxonomy(network_id, load_path):
     """
     Loads a network's taxonomy data from file (if one exists).
     :param network_id: network id of the loaded nodes.
+    :param load_path: directory path to load from.
     :return: a dictionary of node ids mapped to kingdom if a
     taxonomy file exists, otherwise None.
     """
-    taxonomy_dir = pathlib.Path(base_dir).joinpath('taxonomy')
     taxonomy_filename = 'net{0}'.format(network_id)
-    if taxonomy_filename not in os.listdir(taxonomy_dir):
+    if taxonomy_filename not in os.listdir(load_path):
         return
 
     taxonomy_dict = dict()
-    with open(taxonomy_dir.joinpath(taxonomy_filename), 'r') as tax_file:
+    with open(load_path.joinpath(taxonomy_filename), 'r') as tax_file:
         plant_line = tax_file.readline()[:-1]
         for node_id in plant_line.split('|'):
             taxonomy_dict[int(node_id)] = 'Plantae'
@@ -229,13 +229,14 @@ def load_network_taxonomy(network_id):
     return taxonomy_dict
 
 
-def store_network_taxonomy(network_id, network_nodes):
+def store_network_taxonomy(network_id, network_nodes, store_path):
     """
     stores a network's taxonomy data in a file as node ids separated
     by pipe (|) characters. First row is for plants, second for pollinators
     and third for nodes with unknown taxonomy. After storing, the taxonomy
     data can be completed manually.
     :param network_id: network id of the stored vertices.
+    :param store_path: directory path to store to.
     :param network_nodes: a list of vertices with taxonomy data
     """
     plants, pollinators, unknowns = [], [], []
@@ -248,7 +249,7 @@ def store_network_taxonomy(network_id, network_nodes):
         else:  # no known kingdom for node.
             unknowns.append(store_id)
 
-    store_path = pathlib.Path(base_dir).joinpath('taxonomy', 'net{0}'.format(network_id))
+    store_path = pathlib.Path(store_path).joinpath('net{0}'.format(network_id))
     with open(store_path, 'w+') as store_file:
         store_file.write('|'.join(plants) + '\n')
         store_file.write('|'.join(pollinators) + '\n')
@@ -274,7 +275,7 @@ def network_to_csv(nodes, edges, csv_path):
                 node_pair = frozenset((plant['id'], poll['id']))
                 edge_value = 0
                 if node_pair in edges:
-                    plant_row.append(edges[node_pair]['value'])
+                    edge_value = edges[node_pair]['value']
                 plant_row.append(edge_value)
             net_writer.writerow(plant_row)
 
@@ -289,14 +290,14 @@ def construct_network(network_id, base_dir, force_web=False, force_csv=False):
     :param force_csv: create a csv even if one already exists (overwrite existing csv).
     :return: the network's nodes and edges.
     """
-    preloaded_kingdoms = load_network_taxonomy(network_id)
+    preloaded_kingdoms = load_network_taxonomy(network_id, base_dir.joinpath('taxonomy'))
     net_nodes = get_network_nodes(
         network_id, node_kingdoms=preloaded_kingdoms, force_web=force_web
     )
     net_edges = get_network_edges(network_id)
     if force_web or not preloaded_kingdoms:
         missing_kingdoms = complete_kingdoms_by_interactions(net_nodes, net_edges)
-        store_network_taxonomy(network_id, net_nodes)
+        store_network_taxonomy(network_id, net_nodes, base_dir.joinpath('taxonomy'))
     else:
         missing_kingdoms = sum(
             map(lambda val: 1 if not val['kingdom'] else 0, net_nodes.values())
@@ -304,7 +305,9 @@ def construct_network(network_id, base_dir, force_web=False, force_csv=False):
 
     assert missing_kingdoms < 1, "network {0} has {1} nodes with no kingdom." \
                                  "Can't write to csv".format(network_id, missing_kingdoms)
-    net_path = pathlib.Path(base_dir).joinpath('netcsv', 'net{0}.csv'.format(network_id))
+    net_path = pathlib.Path(base_dir).joinpath('netcsv', '{0}.csv'.format(
+        get_network_metadata(network_id)['name']))
+
     if force_csv or not os.path.isfile(net_path):
         network_to_csv(net_nodes, net_edges, net_path)
     return net_nodes, net_edges
@@ -319,10 +322,9 @@ if __name__ == "__main__":
         nid = network['id']
         print("working on network {0}: {1}".format(nid, network['description']))
         try:
-            construct_network(nid, project_path)
+            construct_network(nid, pathlib.Path(project_path))
         except AssertionError as e:
             print(">>>>>>>>>>>>>>>>>>")
             print('network {0} error: {1}'.format(network['id'], e))
             print("<<<<<<<<<<<<<<<<<<")
         print("=================================================")
-        break
