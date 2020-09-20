@@ -1,3 +1,4 @@
+from sys import argv
 import re
 import os
 import pathlib
@@ -13,7 +14,6 @@ from taxonomy_info import get_nodelist_kingdoms
 """
 
 MANGAL_URL = "https://mangal.io/api/v2/"
-PROJECT_PATH = "/home/userors/academics/netlab/mangal"
 
 
 def mangal_base_request(request_specifier):
@@ -135,7 +135,6 @@ def construct_adjacency_list(adjacency_matrix):
     """
     network_adjacency = dict()
     for src, dest in adjacency_matrix.keys():
-        print(src, dest)
         if src in network_adjacency:
             network_adjacency[src].append(dest)
         else:
@@ -208,7 +207,7 @@ def load_network_taxonomy(network_id):
     :return: a dictionary of node ids mapped to kingdom if a
     taxonomy file exists, otherwise None.
     """
-    taxonomy_dir = pathlib.Path(PROJECT_PATH).joinpath('taxonomy')
+    taxonomy_dir = pathlib.Path(base_dir).joinpath('taxonomy')
     taxonomy_filename = 'net{0}'.format(network_id)
     if taxonomy_filename not in os.listdir(taxonomy_dir):
         return
@@ -249,22 +248,21 @@ def store_network_taxonomy(network_id, network_nodes):
         else:  # no known kingdom for node.
             unknowns.append(store_id)
 
-    store_path = pathlib.Path(PROJECT_PATH).joinpath('taxonomy', 'net{0}'.format(network_id))
+    store_path = pathlib.Path(base_dir).joinpath('taxonomy', 'net{0}'.format(network_id))
     with open(store_path, 'w+') as store_file:
         store_file.write('|'.join(plants) + '\n')
         store_file.write('|'.join(pollinators) + '\n')
         store_file.write('|'.join(unknowns) + '\n')
 
 
-def network_to_csv(nodes, edges, net_id):
+def network_to_csv(nodes, edges, csv_path):
     """
     converts the network into a pandas friendly csv format. The format conforms
     to WoL csv format with plants as rows starts and pollinators as column heads
     :param nodes: node list of the selected network.
     :param edges: interaction dict of the selected network.
-    :param net_id: mangal id of the selected network.
+    :param csv_path: path to save the csv.
     """
-    csv_path = pathlib.Path(PROJECT_PATH).joinpath('netcsv', 'net{0}.csv'.format(net_id))
     plant_nodes = [nodes[nid] for nid in nodes if nodes[nid]['kingdom'] == 'Plantae']
     pollinator_nodes = [nodes[nid] for nid in nodes if nodes[nid]['kingdom'] == 'Animalia']
     with open(csv_path, 'w+', newline='') as csvfile:
@@ -281,7 +279,16 @@ def network_to_csv(nodes, edges, net_id):
             net_writer.writerow(plant_row)
 
 
-def construct_network(network_id, force_web=False):
+def construct_network(network_id, base_dir, force_web=False, force_csv=False):
+    """
+    Perform the whole network construction pipeline, getting nodes, taxonomy
+    and edges, then saving the network to csv.
+    :param network_id: mangal id of the requested network.
+    :param base_dir: base dir for storing network csv or taxonomy files from.
+    :param force_web: get node taxonomy from web even if a taxonomy file exists.
+    :param force_csv: create a csv even if one already exists (overwrite existing csv).
+    :return: the network's nodes and edges.
+    """
     preloaded_kingdoms = load_network_taxonomy(network_id)
     net_nodes = get_network_nodes(
         network_id, node_kingdoms=preloaded_kingdoms, force_web=force_web
@@ -297,24 +304,25 @@ def construct_network(network_id, force_web=False):
 
     assert missing_kingdoms < 1, "network {0} has {1} nodes with no kingdom." \
                                  "Can't write to csv".format(network_id, missing_kingdoms)
-    network_to_csv(net_nodes, net_edges, network_id)
+    net_path = pathlib.Path(base_dir).joinpath('netcsv', 'net{0}.csv'.format(network_id))
+    if force_csv or not os.path.isfile(net_path):
+        network_to_csv(net_nodes, net_edges, net_path)
     return net_nodes, net_edges
 
 
 if __name__ == "__main__":
-    construct_network(27)
-    """
+    project_path = argv[1]
     for network in query_iterator('network', {}):
-        if not is_pollination_network(network['description']) or network['id'] == 19:
+        if not is_pollination_network(network['description']):
             continue
 
         nid = network['id']
         print("working on network {0}: {1}".format(nid, network['description']))
         try:
-            construct_network(nid)
+            construct_network(nid, project_path)
         except AssertionError as e:
             print(">>>>>>>>>>>>>>>>>>")
             print('network {0} error: {1}'.format(network['id'], e))
             print("<<<<<<<<<<<<<<<<<<")
         print("=================================================")
-    """
+        break
