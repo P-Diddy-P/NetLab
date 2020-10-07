@@ -38,4 +38,5 @@ def convert_directory(src_dir, dest_dir):
 
 
 if __name__ == "__main__":
-    convert_directory(argv[1], argv[2])
+    raise NotImplementedError  # see file docstring
+    # convert_directory(pathlib.Path(argv[1]), pathlib.Path(argv[2]))
