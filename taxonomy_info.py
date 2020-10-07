@@ -12,6 +12,10 @@ import requests as req
     
     As such, we'll implement taxonomy requests for all services both by id and my species/genus names, 
     and run them when necessary from a thread pool.
+    
+    EoL has shown inconsistencies with mangal ids, as such it is not used. Furthermore, ITIS
+    ids of mangal will occasionally direct to null genus pages with the wrong kingdom, so it might
+    be removed as well.
 """
 
 DELIMETER = {'u': "_", 'p': '+'}
@@ -266,7 +270,8 @@ def get_nodelist_kingdoms(nodes):
         for tid, tax_info in mangal_taxonomy_info.items():
             executor.submit(get_node_kingdom, tax_info=tax_info, node_id=tid,
                             node_kingdoms=node_kingdoms, db_counts=db_concurrent_users)
-    print(db_concurrent_users)  # make sure all web service requests were resolved
+    # make sure all web service requests were resolved
+    print(f" pending service requests: {db_concurrent_users}")
     return node_kingdoms
 
 

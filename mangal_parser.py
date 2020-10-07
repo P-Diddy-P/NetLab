@@ -111,7 +111,9 @@ def get_network_edges(network_id):
     :return: a dictionary of edges by node pairs.
     """
     edge_dict = dict()
+    acc = 0
     for edge in query_iterator("interaction", {"network_id": network_id}):
+        acc += 1
         e_from = edge['node_to']
         e_to = edge['node_from']
         existing_id = edge_dict.get(frozenset((e_from, e_to)), -1)
@@ -122,7 +124,9 @@ def get_network_edges(network_id):
         assert edge['value'] != 0, "Edge from {} to {} has value 0".format(e_from, e_to)
 
         edge_dict[frozenset((edge['node_from'], edge['node_to']))] = \
-            {'value': edge['value'], 'edge_id': edge['id']}
+            {'value': edge['value'], 'edge_id': edge['id']}  # , 'lid': acc}
+
+    assert acc == len(edge_dict), f"total interactions should be {acc}, are {len(edge_dict)}"
     return edge_dict
 
 
@@ -173,8 +177,9 @@ def complete_kingdoms_by_interactions(nodes, edges):
                 continue
             node_neighbors = network_adjacency.get(node['id'], [])
             neighbor_kingdoms = {nodes[neighbor]['kingdom'] for neighbor in node_neighbors} - {''}
-            assert len(neighbor_kingdoms) < 2, "Network is not bipartite for vertex {0}".format(
-                node['id'])
+            assert len(neighbor_kingdoms) < 2, \
+                "Network is not bipartite for vertex {0}: {1}".format(
+                node['id'], {n: nodes[n]['kingdom'] for n in node_neighbors})
 
             if not neighbor_kingdoms:
                 current_unresolved += 1
@@ -314,7 +319,7 @@ def construct_network(network_id, base_dir, force_web=False, force_csv=False):
 
 
 if __name__ == "__main__":
-    project_path = argv[1]
+    project_path = pathlib.Path(argv[1])
     for network in query_iterator('network', {}):
         if not is_pollination_network(network['description']):
             continue
@@ -322,7 +327,7 @@ if __name__ == "__main__":
         nid = network['id']
         print("working on network {0}: {1}".format(nid, network['description']))
         try:
-            construct_network(nid, pathlib.Path(project_path))
+            construct_network(nid, project_path)
         except AssertionError as e:
             print(">>>>>>>>>>>>>>>>>>")
             print('network {0} error: {1}'.format(network['id'], e))
