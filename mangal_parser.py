@@ -93,13 +93,19 @@ def get_network_nodes(network_id, node_kingdoms=None, force_web=False):
     :return: a list of nodes as dictionaries (not namedtuples for kingdom completion mutability)
     """
     raw_nodes = []
+    node_counter = 0
     for node_json in query_iterator("node", {"network_id": network_id}):
         raw_nodes.append(node_json)
+        node_counter += 1
 
     if force_web or not node_kingdoms:
         node_kingdoms = get_nodelist_kingdoms(raw_nodes)
-    return {node['id']: {"id": node['id'], "name": node['original_name'],
-            "kingdom": node_kingdoms.get(node['id'], '')} for node in raw_nodes}
+    all_nodes = {node['id']: {"id": node['id'], "name": node['original_name'],
+                              "kingdom": node_kingdoms.get(node['id'], '')}
+                 for node in raw_nodes}
+    assert len(all_nodes) == node_counter, \
+        f"total nodes should be {node_counter}, are {len(all_nodes)}"
+    return all_nodes
 
 
 def get_network_edges(network_id):
@@ -111,9 +117,9 @@ def get_network_edges(network_id):
     :return: a dictionary of edges by node pairs.
     """
     edge_dict = dict()
-    acc = 0
+    edge_counter = 0
     for edge in query_iterator("interaction", {"network_id": network_id}):
-        acc += 1
+        edge_counter += 1
         e_from = edge['node_to']
         e_to = edge['node_from']
         existing_id = edge_dict.get(frozenset((e_from, e_to)), -1)
@@ -124,9 +130,9 @@ def get_network_edges(network_id):
         assert edge['value'] != 0, "Edge from {} to {} has value 0".format(e_from, e_to)
 
         edge_dict[frozenset((edge['node_from'], edge['node_to']))] = \
-            {'value': edge['value'], 'edge_id': edge['id']}  # , 'lid': acc}
+            {'value': edge['value'], 'edge_id': edge['id']}  # , 'lid': edge_counter}
 
-    assert acc == len(edge_dict), f"total interactions should be {acc}, are {len(edge_dict)}"
+    assert edge_counter == len(edge_dict), f"total interactions should be {edge_counter}, are {len(edge_dict)}"
     return edge_dict
 
 

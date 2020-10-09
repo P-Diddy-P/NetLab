@@ -1,6 +1,7 @@
 from sys import argv
 import pathlib
 import os
+import re
 
 import pandas as pd
 
@@ -24,6 +25,9 @@ def extract_networks(source_directories):
             all_networks[net_file.stem] = pd.read_csv(net_file, index_col=0)
         else:
             duplicate_names.append(net_file.stem)
+
+    if duplicate_names:
+        print(f"found multiple networks with names: {', '.join(duplicate_names)}")
     return all_networks
 
 
@@ -64,28 +68,33 @@ def compare_nodes(nodes1, nodes2, fraction=0.05):
     print(f'{len(set(nodes2) - similar)} non-similars in net1:\n{sorted(list(set(nodes2) - similar))}')
 
 
+def special_pattern(string):
+    special_chars = r'[^a-zA-Z]'
+    for word in string.split(' '):
+        if re.search(special_chars, word):
+            return True
+    return False
+
+
 if __name__ == "__main__":
     # TODO currently doesn't parse IWDB networks, as they have no set format.
     # TODO add IWDB (argv[1]) once it's directory is in order.
-    networks = extract_networks([pathlib.Path(s) for s in argv[2:]])
+    # networks = extract_networks([pathlib.Path(s) for s in argv[2:]])
+    sources = [pathlib.Path(argv[2])]
 
-    for i in range(3):
-        wol_sus = networks[SUSPECT_DUPLICATES[i]]
-        mangal_sus = networks[SUSPECT_DUPLICATES[i + 3]]
-        print("comparing suspicious networks:\n"
-              "===============================================")
-        print("plants are kinda sus...\n"
-              "-----------------------------------------------")
-        compare_nodes(wol_sus.index, mangal_sus.index)
-        print("pollinators are kinda sus...\n"
-              "-----------------------------------------------")
-        compare_nodes(wol_sus.columns, mangal_sus.columns)
+    for net_name, network in extract_networks(sources).items():
+        plant_sp = 0
+        pol_sp = 0
+        print(f"============================================\n"
+              f"searching {net_name}\n")
+        for plant_name in network.index:
+            if special_pattern(plant_name):
+                plant_sp += 1
+                print(plant_name)
 
-    """
-    net_keys = list(networks.keys())
-    for i in range(len(net_keys)):
-        for j in range(i+1, len(net_keys)):
-            if check_for_duplicate(networks[net_keys[i]],
-                                networks[net_keys[j]]):
-                print(f"networks {net_keys[i]} and {net_keys[j]} are suspect duplicates")
-    """
+        for pol_name in network.columns:
+            if special_pattern(pol_name):
+                pol_sp += 1
+                print(pol_name)
+        print(f"\ntotal {plant_sp} special plants || {pol_sp} special pollinators")
+        print("============================================\n")
