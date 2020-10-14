@@ -1,4 +1,5 @@
 from sys import argv
+from collections import namedtuple
 import pathlib
 import os
 import re
@@ -9,15 +10,23 @@ SUSPECT_DUPLICATES = ['M_PL_001', 'M_PL_002', 'M_PL_003',
                       'arroyo_1982_19810301_949', 'arroyo_1982_19810301_950',
                       'arroyo_1982_19810301_951']
 
+SPECIES_SPATTERN = r' (?P<base>sp\.{0,2}|n\.i\.) ?' \
+                   r'(?P<spindex>[0-9]*) ?' \
+                   r'(?P<spnet>M_PL_[0-9]{3}(_[0-9]{0,3})?)? ?' \
+                   r'(?P<spextra>.*)'
 
-def iter_sources(sources):
+SpeciesIdentifier = namedtuple('SpeciesIdentifier',
+                               ['genus', 'index', 'network', 'extra', 'origin'])
+
+
+def iter_sources(sources):  # TODO move to mainframe when done!
     for src in sources:
         for file in os.listdir(src):
             if file.endswith('csv'):
                 yield src.joinpath(file)
 
 
-def extract_networks(source_directories):
+def extract_networks(source_directories):   # TODO move to mainframe when done!
     all_networks = dict()
     duplicate_names = []
     for net_file in iter_sources(source_directories):
@@ -31,16 +40,102 @@ def extract_networks(source_directories):
     return all_networks
 
 
+def species_pattern(species):
+    """
+    Parses a names of unidentified species to the following tokens:
+    - genus
+    - index (for when there are several unidentified species)
+    - network identifier (special for WoL networks with M_PL_[XXX])
+    - Extra information (usually a few capitalized letters)
+    This breaking down of unknown species will allow for comparison by subsets
+    or specific criteria.
+    :param species: string with the species name as given in the network.
+    :return: a regularized namedtuple of the species name
+    """
+    if len(species.split(' ')) == 2 and not \
+            any([re.search(r'(^sp$|[^a-zA-Z])', w) for w in species.split(' ')]):
+        # Don't consider species with "valid" structure of `genus species`
+        return None
+
+    match = re.search(SPECIES_SPATTERN, species)
+    if not match:
+        return None
+
+    return SpeciesIdentifier(
+        genus=species.split(' ')[0],
+        index=match.group('spindex'),
+        network='' if not match.group('spnet') else match.group('spnet'),
+        extra=match.group('spextra'),
+        origin=species
+    )
+
+
+def map_nodeset(set1, set2):
+    """
+    Given two sets of network nodes labeled by species names, maps
+    the names between the nodes in each set, first by full text comparison,
+    then by a diminishing number of parameters using the species pattern.
+    :return: quadruple of the following:
+    1. mapping from set1 to set2 nodes.
+    2. reverse mapping from set2 to set1 nodes.
+    3. nodes without mapping in set1.
+    4. nodes without mapping in set2.
+    Note that nodes without mapping are mapped to None in 1. and 2.
+    """
+    raise NotImplementedError
+
+
+def comprare_networks(net1, net2):
+    """
+    Takes two networks and compares them according to matching in
+    plant/pollinator/interaction elements and set sizes.
+    :return: k-tuple containing two mappings from net1 vertices
+     to net2 and vice versa, as well as several similarity/coverage
+     parameters. If no adequate mappings are found, they are replaced
+     by None values.
+    """
+    raise NotImplementedError
+
+
+def count_unidentified(net_table):
+    """
+    Counts the number of COMPLETELY unidentified species of plants and pollinators
+    in a network. Assumes such species are named `unidentified` in the network,
+    and are wholly unknown (i.e. the genus is also unknown).
+    :param net_table: pandas table of a pollinator network
+    :return: tuple of unknown plant and pollinator species.
+    """
+    return sum(1 if p.lower().startswith('unidentified') else 0 for p in net_table.index), \
+        sum(1 if p.lower().startswith('unidentified') else 0 for p in net_table.columns)
+
+
 if __name__ == "__main__":
-    # TODO currently doesn't parse IWDB networks, as they have no set format.
-    # TODO add IWDB (argv[1]) once it's directory is in order.
-    networks = extract_networks([pathlib.Path(s) for s in argv[2:]])
-    network_keys = list(networks.keys())
+    # Decided method for duplicate finding:
+    # remove unknown species from both plant and pollinator lists
+    # (drop networks with over X% unknown species of plants or pollinators).
+    # After removing (ENTIRELY) unknown species, preprocess both plant
+    # and pollinator list by formalizing names to some format of required
+    # parameters for comparison, and non required.
+    # Then, set intersect plant and pollinator lists for networks, and compare
+    # all other parts manually by format (consider comparing all by format).
+    # If all goes well with nodelist comparisons, compare interactions
+    # (for efficient interaction comparison, keep base species strings to access
+    # pd cells easily).
 
-    for i in range(len(network_keys)):
-        refnet = networks[network_keys[i]]
-        refplants = refnet.index  # add preprocessing for vertex lists
-        refpols = refnet.columns
+    sources = [pathlib.Path(arg) for arg in argv[2:]]
 
-        for j in range(i + 1, len(network_keys)):
-            pass
+    for net_name, network in extract_networks(sources).items():
+        plant_sp = 0
+        pol_sp = 0
+        print(f"============================================\n"
+              f"searching {net_name}\n")
+        for plant_name in network.index:
+            if pattern := species_pattern(plant_name):
+                plant_sp += 1
+                print(pattern)
+
+        for pol_name in network.columns:
+            if pattern := species_pattern(pol_name):
+                pol_sp += 1
+                print(pattern)
+        print(f"\ntotal {plant_sp} special plants || {pol_sp} special pollinators")

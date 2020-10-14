@@ -301,6 +301,12 @@ def construct_network(network_id, base_dir, force_web=False, force_csv=False):
     :param force_csv: create a csv even if one already exists (overwrite existing csv).
     :return: the network's nodes and edges.
     """
+    net_path = pathlib.Path(base_dir).joinpath('netcsv', '{0}.csv'.format(
+        get_network_metadata(network_id)['name']))
+    if not force_csv and os.path.isfile(net_path):
+        print("net csv found")  # TODO remove
+        return net_path  # currently construct_network return values are not used, mostly symbolic
+
     preloaded_kingdoms = load_network_taxonomy(network_id, base_dir.joinpath('taxonomy'))
     net_nodes = get_network_nodes(
         network_id, node_kingdoms=preloaded_kingdoms, force_web=force_web
@@ -316,26 +322,33 @@ def construct_network(network_id, base_dir, force_web=False, force_csv=False):
 
     assert missing_kingdoms < 1, "network {0} has {1} nodes with no kingdom." \
                                  "Can't write to csv".format(network_id, missing_kingdoms)
-    net_path = pathlib.Path(base_dir).joinpath('netcsv', '{0}.csv'.format(
-        get_network_metadata(network_id)['name']))
 
-    if force_csv or not os.path.isfile(net_path):
-        network_to_csv(net_nodes, net_edges, net_path)
+    network_to_csv(net_nodes, net_edges, net_path)
     return net_nodes, net_edges
 
 
 if __name__ == "__main__":
     project_path = pathlib.Path(argv[1])
-    for network in query_iterator('network', {}):
-        if not is_pollination_network(network['description']):
-            continue
+    for i in range(1, 21):
+        print("=" * 100)
+        print(f"STARTING NETWORK RUN {i}")
+        print("=" * 100)
 
-        nid = network['id']
-        print("working on network {0}: {1}".format(nid, network['description']))
-        try:
-            construct_network(nid, project_path)
-        except AssertionError as e:
-            print(">>>>>>>>>>>>>>>>>>")
-            print('network {0} error: {1}'.format(network['id'], e))
-            print("<<<<<<<<<<<<<<<<<<")
-        print("=================================================")
+        failed_nets = 0
+
+        for network in query_iterator('network', {}):
+            if not is_pollination_network(network['description']):
+                continue
+
+            nid = network['id']
+            print("working on network {0}: {1}".format(nid, network['description']))
+            try:
+                construct_network(nid, project_path, force_web=True)
+            except AssertionError as e:
+                print(">>>>>>>>>>>>>>>>>>")
+                print('network {0} error: {1}'.format(network['id'], e))
+                print("<<<<<<<<<<<<<<<<<<")
+                failed_nets += 1
+            print("-" * 100)
+
+        print(f"run {i} done with {failed_nets} failures.")
