@@ -52,14 +52,17 @@ def species_pattern(species):
     :param species: string with the species name as given in the network.
     :return: a regularized namedtuple of the species name
     """
+    normal_species = SpeciesIdentifier(
+        genus='', index='', network='', extra='', origin=species
+    )
     if len(species.split(' ')) == 2 and not \
             any([re.search(r'(^sp$|[^a-zA-Z])', w) for w in species.split(' ')]):
         # Don't consider species with "valid" structure of `genus species`
-        return None
+        return normal_species
 
     match = re.search(SPECIES_SPATTERN, species)
     if not match:
-        return None
+        return normal_species
 
     return SpeciesIdentifier(
         genus=species.split(' ')[0],
@@ -70,11 +73,39 @@ def species_pattern(species):
     )
 
 
+def parameterized_compare(a, b, *args):
+    """
+    Compares two elements: a and b, according to a list
+    of parameters, given as args.
+    :param a: first comparand.
+    :param b: second comparand.
+    :param args: parameters to compare by. If no parameters
+    are given, compare a == b.
+    :return: True if a and b have the same parameters.
+    """
+    if not args:
+        return a == b
+    return all([getattr(a, arg) == getattr(b, arg) for arg in args])
+
+
+def map_nodeset_by_parameters(set1, set2, map12, map21, *args):
+    for cmpa in set1:
+        if cmpa in map12:
+            pass
+
+        for cmpb in set2:
+            if parameterized_compare(cmpa, cmpb, *args) \
+                    and not map21.get(cmpb, None):
+                map12[cmpa.origin] = cmpb.origin
+                map21[cmpb.origin] = cmpa.origin
+
+
 def map_nodeset(set1, set2):
     """
     Given two sets of network nodes labeled by species names, maps
     the names between the nodes in each set, first by full text comparison,
     then by a diminishing number of parameters using the species pattern.
+    Assumes all node names in a network are unique.
     :return: quadruple of the following:
     1. mapping from set1 to set2 nodes.
     2. reverse mapping from set2 to set1 nodes.
@@ -82,10 +113,17 @@ def map_nodeset(set1, set2):
     4. nodes without mapping in set2.
     Note that nodes without mapping are mapped to None in 1. and 2.
     """
-    raise NotImplementedError
+    map1to2 = dict()
+    map2to1 = dict()
+
+    pset1 = [species_pattern(sp_string) for sp_string in set1]
+    pset2 = [species_pattern(sp_string) for sp_string in set2]
+    map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1, 'origin')
+    print(map1to2)
+    print(map2to1)
 
 
-def comprare_networks(net1, net2):
+def compare_networks(net1, net2):
     """
     Takes two networks and compares them according to matching in
     plant/pollinator/interaction elements and set sizes.
@@ -123,7 +161,10 @@ if __name__ == "__main__":
     # pd cells easily).
 
     sources = [pathlib.Path(arg) for arg in argv[2:]]
+    net_pd = extract_networks(sources)
+    map_nodeset(net_pd[SUSPECT_DUPLICATES[2]].index, net_pd[SUSPECT_DUPLICATES[5]].index)
 
+    """
     for net_name, network in extract_networks(sources).items():
         plant_sp = 0
         pol_sp = 0
@@ -139,3 +180,5 @@ if __name__ == "__main__":
                 pol_sp += 1
                 print(pattern)
         print(f"\ntotal {plant_sp} special plants || {pol_sp} special pollinators")
+        print(count_unidentified(network))
+    """
