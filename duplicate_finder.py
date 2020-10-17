@@ -16,7 +16,7 @@ SPECIES_SPATTERN = r' (?P<base>sp\.{0,2}|n\.i\.) ?' \
                    r'(?P<spextra>.*)'
 
 SpeciesIdentifier = namedtuple('SpeciesIdentifier',
-                               ['genus', 'index', 'network', 'extra', 'origin'])
+                               ['genus', 'species', 'index', 'network', 'extra', 'origin'])
 
 
 def iter_sources(sources):  # TODO move to mainframe when done!
@@ -40,7 +40,20 @@ def extract_networks(source_directories):   # TODO move to mainframe when done!
     return all_networks
 
 
-def species_pattern(species):
+def name_missing_structure(tax_name):
+    """
+    Checks whether the taxon name follows the pattern expected
+    from a taxon with missing species, that is: genus (might be shorthand),
+    followed by an unknown species identifier.
+    :param tax_name: taxon name to check.
+    :return: True if the taxon name follows an unknown species pattern,
+    otherwise False.
+    """
+    query_word = tax_name.split(' ')[1]
+    return re.match(r'(^sp$|n\.i\.|^sp[^a-z])', query_word)
+
+
+def species_pattern(tax_name):
     """
     Parses a names of unidentified species to the following tokens:
     - genus
@@ -49,27 +62,30 @@ def species_pattern(species):
     - Extra information (usually a few capitalized letters)
     This breaking down of unknown species will allow for comparison by subsets
     or specific criteria.
-    :param species: string with the species name as given in the network.
+    :param tax_name: string with the species name as given in the network.
     :return: a regularized namedtuple of the species name
     """
-    normal_species = SpeciesIdentifier(
-        genus='', index='', network='', extra='', origin=species
+    tax_words = tax_name.split(' ')
+    normal_structure = SpeciesIdentifier(
+        genus=tax_words[0],
+        species=tax_words[1],
+        index='', network='', origin=tax_name,
+        extra=tax_words[2:] if len(tax_words) > 2 else ''
     )
-    if len(species.split(' ')) == 2 and not \
-            any([re.search(r'(^sp$|[^a-zA-Z])', w) for w in species.split(' ')]):
-        # Don't consider species with "valid" structure of `genus species`
-        return normal_species
+    if not name_missing_structure(tax_name):
+        return normal_structure
 
-    match = re.search(SPECIES_SPATTERN, species)
+    match = re.search(SPECIES_SPATTERN, tax_name)
     if not match:
-        return normal_species
+        return normal_structure
 
     return SpeciesIdentifier(
-        genus=species.split(' ')[0],
+        genus=tax_name.split(' ')[0],
+        species='',
         index=match.group('spindex'),
         network='' if not match.group('spnet') else match.group('spnet'),
         extra=match.group('spextra'),
-        origin=species
+        origin=tax_name
     )
 
 
@@ -90,14 +106,33 @@ def parameterized_compare(a, b, *args):
 
 def map_nodeset_by_parameters(set1, set2, map12, map21, *args):
     for cmpa in set1:
-        if cmpa in map12:
-            pass
+        if cmpa.origin in map12:
+            continue
 
         for cmpb in set2:
+            if cmpb.origin in map21:
+                continue
+
             if parameterized_compare(cmpa, cmpb, *args) \
                     and not map21.get(cmpb, None):
+                # print("mapping ", cmpa.origin, " to ", cmpb.origin, " by ", args)
                 map12[cmpa.origin] = cmpb.origin
                 map21[cmpb.origin] = cmpa.origin
+                break
+
+
+def map_non_matches(key_set, mapping):
+    """
+    Completes a mapping to contain all keys in key_set, with missing
+    keys mapped to None.
+    :param key_set: a set of elements which should be keys
+    in mapping.
+    :param mapping: dictionary mapping to complete.
+    :return: None, but mutates mapping patameter.
+    """
+    for key in key_set:
+        if key not in mapping.keys():
+            mapping[key] = None
 
 
 def map_nodeset(set1, set2):
@@ -113,26 +148,21 @@ def map_nodeset(set1, set2):
     4. nodes without mapping in set2.
     Note that nodes without mapping are mapped to None in 1. and 2.
     """
-    map1to2 = dict()
-    map2to1 = dict()
+    nonspecific_parameters = ['genus', 'index', 'network', 'extra']
+    map1to2, map2to1 = dict(), dict()
 
     pset1 = [species_pattern(sp_string) for sp_string in set1]
     pset2 = [species_pattern(sp_string) for sp_string in set2]
     map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1, 'origin')
-    print(map1to2)
-    print(map2to1)
+    for stop in range(len(nonspecific_parameters), 1, -1):
+        map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1,
+                                  *nonspecific_parameters[:stop])
+    map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1, 'species')
 
-
-def compare_networks(net1, net2):
-    """
-    Takes two networks and compares them according to matching in
-    plant/pollinator/interaction elements and set sizes.
-    :return: k-tuple containing two mappings from net1 vertices
-     to net2 and vice versa, as well as several similarity/coverage
-     parameters. If no adequate mappings are found, they are replaced
-     by None values.
-    """
-    raise NotImplementedError
+    unmapped1, unmapped2 = set1 - set(map1to2.keys()), set2 - set(map2to1.keys())
+    map_non_matches(set1, map1to2)
+    map_non_matches(set2, map2to1)
+    return map1to2, map2to1, unmapped1, unmapped2
 
 
 def count_unidentified(net_table):
@@ -145,6 +175,17 @@ def count_unidentified(net_table):
     """
     return sum(1 if p.lower().startswith('unidentified') else 0 for p in net_table.index), \
         sum(1 if p.lower().startswith('unidentified') else 0 for p in net_table.columns)
+
+
+def compare_networks(net1, net2):
+    """
+    Takes two networks and compares them according to matching in
+    plant/pollinator/interaction elements and set sizes.
+    :return: k-tuple containing two mappings from net1 vertices
+     to net2 and vice versa, as well as several similarity/coverage
+     parameters.
+    """
+    raise NotImplementedError
 
 
 if __name__ == "__main__":
@@ -162,7 +203,10 @@ if __name__ == "__main__":
 
     sources = [pathlib.Path(arg) for arg in argv[2:]]
     net_pd = extract_networks(sources)
-    map_nodeset(net_pd[SUSPECT_DUPLICATES[2]].index, net_pd[SUSPECT_DUPLICATES[5]].index)
+    map_nodeset(
+        set(net_pd[SUSPECT_DUPLICATES[2]].index),
+        set(net_pd[SUSPECT_DUPLICATES[5]].index)
+    )
 
     """
     for net_name, network in extract_networks(sources).items():
