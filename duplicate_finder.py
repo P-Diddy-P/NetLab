@@ -68,7 +68,7 @@ def species_pattern(tax_name):
     tax_words = tax_name.split(' ')
     normal_structure = SpeciesIdentifier(
         genus=tax_words[0],
-        species=tax_words[1],
+        species=tax_words[1],  # if len(tax_words) > 1 else '',
         index='', network='', origin=tax_name,
         extra=tax_words[2:] if len(tax_words) > 2 else ''
     )
@@ -89,22 +89,37 @@ def species_pattern(tax_name):
     )
 
 
-def parameterized_compare(a, b, *args):
+def parameterized_compare(a, b, allow_empty, *args):
     """
     Compares two elements: a and b, according to a list
     of parameters, given as args.
     :param a: first comparand.
     :param b: second comparand.
+    :param allow_empty: allows comparing empty parameters. If False,
+    then (a.arg == b.arg && a.arg == '') will return False
     :param args: parameters to compare by. If no parameters
     are given, compare a == b.
     :return: True if a and b have the same parameters.
     """
     if not args:
         return a == b
-    return all([getattr(a, arg) == getattr(b, arg) for arg in args])
+    return all([getattr(a, arg) == getattr(b, arg) and
+                (getattr(a, arg) != '' or allow_empty)
+                for arg in args])
 
 
-def map_nodeset_by_parameters(set1, set2, map12, map21, *args):
+def map_nodeset_by_parameters(set1, set2, map12, map21, cmp_empty, *args):
+    """
+    Takes unmapped elements from set1 and set2 and maps between them by
+    the given comparison parameters.
+    :param set1: first set of mapping elements.
+    :param set2: second set of mapping elements.
+    :param map12: mapping from set1 elements to set2.
+    :param map21: mapping from set2 elements to set1.
+    :param cmp_empty: consider empty parameters comparable.
+    :param args: comparison parameters.
+    :return: None, but mutates map parameters.
+    """
     for cmpa in set1:
         if cmpa.origin in map12:
             continue
@@ -113,8 +128,8 @@ def map_nodeset_by_parameters(set1, set2, map12, map21, *args):
             if cmpb.origin in map21:
                 continue
 
-            if parameterized_compare(cmpa, cmpb, *args) \
-                    and not map21.get(cmpb, None):
+            if parameterized_compare(cmpa, cmpb, not cmp_empty, *args) \
+                    and not map21.get(cmpb.origin, None):
                 # print("mapping ", cmpa.origin, " to ", cmpb.origin, " by ", args)
                 map12[cmpa.origin] = cmpb.origin
                 map21[cmpb.origin] = cmpa.origin
@@ -153,11 +168,11 @@ def map_nodeset(set1, set2):
 
     pset1 = [species_pattern(sp_string) for sp_string in set1]
     pset2 = [species_pattern(sp_string) for sp_string in set2]
-    map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1, 'origin')
+    map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1, True, 'origin')
     for stop in range(len(nonspecific_parameters), 1, -1):
-        map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1,
+        map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1, False,
                                   *nonspecific_parameters[:stop])
-    map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1, 'species')
+    map_nodeset_by_parameters(pset1, pset2, map1to2, map2to1, True, 'species')
 
     unmapped1, unmapped2 = set1 - set(map1to2.keys()), set2 - set(map2to1.keys())
     map_non_matches(set1, map1to2)
@@ -165,27 +180,78 @@ def map_nodeset(set1, set2):
     return map1to2, map2to1, unmapped1, unmapped2
 
 
-def count_unidentified(net_table):
-    """
-    Counts the number of COMPLETELY unidentified species of plants and pollinators
-    in a network. Assumes such species are named `unidentified` in the network,
-    and are wholly unknown (i.e. the genus is also unknown).
-    :param net_table: pandas table of a pollinator network
-    :return: tuple of unknown plant and pollinator species.
-    """
-    return sum(1 if p.lower().startswith('unidentified') else 0 for p in net_table.index), \
-        sum(1 if p.lower().startswith('unidentified') else 0 for p in net_table.columns)
-
-
-def compare_networks(net1, net2):
+def compare_networks(net1, net2, ct=0.05):
     """
     Takes two networks and compares them according to matching in
     plant/pollinator/interaction elements and set sizes.
-    :return: k-tuple containing two mappings from net1 vertices
-     to net2 and vice versa, as well as several similarity/coverage
-     parameters.
+    :param ct: comparison threshold between networks (multiplied by
+    mean plant/pollinator/interaction number).
+    :return: True if networks are duplicates, False otherwise.
     """
-    raise NotImplementedError
+    plantsize1, polsize1 = len(net1.index), len(net1.columns)
+    plantsize2, polsize2 = len(net2.index), len(net2.columns)
+    plant_threshold = (plantsize1 + plantsize2) / 2 * ct
+    pol_threshold = (polsize1 + polsize2) / 2 * ct
+
+    if abs(plantsize1 - plantsize2) > plant_threshold:
+        print("-->Networks are not duplicates due to different plant sizes")
+        False
+    if abs(polsize1 - polsize2) > pol_threshold:
+        print("-->Networks are not duplicate due to different pollinator sizes")
+        False
+
+    plants1to2, plants2to1, plants1_unmapped, plants2_unmapped = map_nodeset(
+        set(net1.index), set(net2.index))
+    pols1to2, pols2to1, pols1_unmapped, pols2_unmapped = map_nodeset(
+        set(net1.columns), set(net2.columns))
+
+    if len(plants1_unmapped | plants2_unmapped) > plant_threshold:
+        print("-->Networks are not duplicate due to plant mapping failure")
+        return False
+    if len(pols1_unmapped | pols2_unmapped) > pol_threshold:
+        print("-->Networks are not duplicate due to pollinator mapping failure")
+        return False
+
+    print("-->Networks are duplicate for now (check interactions!")  # TODO check interactions!!!
+    return True
+
+
+def unidentified_rate(net_table):
+    """
+    Counts the number of COMPLETELY unidentified species of plants and pollinators
+    in a network and divides by the total species number. Assumes such species are
+    named `unidentified` in the network, and are wholly unknown (i.e. the genus is
+    also unknown).
+    :param net_table: pandas table of a pollinator network
+    :return: tuple of unknown plant and pollinator rates.
+    """
+    unidentified_plants = sum(1 if p.lower().startswith('unidentified') else 0
+                              for p in net_table.index)
+    unidentified_pols = sum(1 if p.lower().startswith('unidentified') else 0
+                            for p in net_table.columns)
+    return unidentified_plants / len(net_table.index), unidentified_pols / len(net_table.columns)
+
+
+def clean_networks(networks, plant_threshold=0.25, pol_threshold=1.0):
+    partial_networks = set()
+
+    for net_name in networks.keys():
+        ref_net = networks[net_name]
+
+        missing_plants, missing_pols = unidentified_rate(ref_net)
+        # print(f"Net: {net_name} has {missing_plants}% missing plant species and "
+        #       f"{missing_pols}% missing pollinator species.")
+
+        known_cols = [not c.lower().startswith('unidentified') for c in ref_net.columns]
+        known_rows = [not r.lower().startswith('unidentified') for r in ref_net.index]
+        if not (all(known_cols) and all(known_rows)):
+            dropped_net = ref_net.loc[known_rows, known_cols]
+            networks[net_name] = dropped_net
+
+        if missing_plants > plant_threshold or missing_pols > pol_threshold:
+            partial_networks.add(net_name)
+
+    return partial_networks
 
 
 if __name__ == "__main__":
@@ -203,26 +269,10 @@ if __name__ == "__main__":
 
     sources = [pathlib.Path(arg) for arg in argv[2:]]
     net_pd = extract_networks(sources)
-    map_nodeset(
-        set(net_pd[SUSPECT_DUPLICATES[2]].index),
-        set(net_pd[SUSPECT_DUPLICATES[5]].index)
-    )
+    unknown_networks = clean_networks(net_pd)
 
-    """
-    for net_name, network in extract_networks(sources).items():
-        plant_sp = 0
-        pol_sp = 0
-        print(f"============================================\n"
-              f"searching {net_name}\n")
-        for plant_name in network.index:
-            if pattern := species_pattern(plant_name):
-                plant_sp += 1
-                print(pattern)
-
-        for pol_name in network.columns:
-            if pattern := species_pattern(pol_name):
-                pol_sp += 1
-                print(pattern)
-        print(f"\ntotal {plant_sp} special plants || {pol_sp} special pollinators")
-        print(count_unidentified(network))
-    """
+    net_keys = list(net_pd.keys())
+    for i in range(len(net_keys)):
+        for j in range(i + 1, len(net_keys)):
+            print(f"\ncomparing: [{net_keys[i]}] || [{net_keys[j]}]")
+            compare_networks(net_pd[net_keys[i]], net_pd[net_keys[j]])
