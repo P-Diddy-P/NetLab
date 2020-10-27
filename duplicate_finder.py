@@ -19,8 +19,8 @@ SpeciesIdentifier = namedtuple('SpeciesIdentifier',
                                ['genus', 'species', 'index', 'network', 'extra', 'origin'])
 
 
-def iter_sources(sources):  # TODO move to mainframe when done!
-    for src in sources:
+def iter_sources(source_directories):  # TODO move to mainframe when done!
+    for src in source_directories:
         for file in os.listdir(src):
             if file.endswith('csv'):
                 yield src.joinpath(file)
@@ -49,8 +49,11 @@ def name_missing_structure(tax_name):
     :return: True if the taxon name follows an unknown species pattern,
     otherwise False.
     """
-    query_word = tax_name.split(' ')[1]
-    return re.match(r'(^sp$|n\.i\.|^sp[^a-z])', query_word)
+    try:
+        query_word = tax_name.split(' ')[1]
+        return re.match(r'(^sp$|n\.i\.|^sp[^a-z])', query_word)
+    except IndexError:  # some tax names are just one word, can't do much with that
+        return None
 
 
 def species_pattern(tax_name):
@@ -65,28 +68,32 @@ def species_pattern(tax_name):
     :param tax_name: string with the species name as given in the network.
     :return: a regularized namedtuple of the species name
     """
-    tax_words = tax_name.split(' ')
-    normal_structure = SpeciesIdentifier(
-        genus=tax_words[0],
-        species=tax_words[1],  # if len(tax_words) > 1 else '',
-        index='', network='', origin=tax_name,
-        extra=tax_words[2:] if len(tax_words) > 2 else ''
-    )
-    if not name_missing_structure(tax_name):
-        return normal_structure
+    try:
+        tax_words = tax_name.split(' ')
+        normal_structure = SpeciesIdentifier(
+            genus=tax_words[0],
+            species=tax_words[1] if len(tax_words) > 1 else '',
+            index='', network='', origin=tax_name,
+            extra=tax_words[2:] if len(tax_words) > 2 else ''
+        )
+        if not name_missing_structure(tax_name):
+            return normal_structure
 
-    match = re.search(SPECIES_SPATTERN, tax_name)
-    if not match:
-        return normal_structure
+        match = re.search(SPECIES_SPATTERN, tax_name)
+        if not match:
+            return normal_structure
 
-    return SpeciesIdentifier(
-        genus=tax_name.split(' ')[0],
-        species='',
-        index=match.group('spindex'),
-        network='' if not match.group('spnet') else match.group('spnet'),
-        extra=match.group('spextra'),
-        origin=tax_name
-    )
+        return SpeciesIdentifier(
+            genus=tax_name.split(' ')[0],
+            species='',
+            index=match.group('spindex'),
+            network='' if not match.group('spnet') else match.group('spnet'),
+            extra=match.group('spextra'),
+            origin=tax_name
+        )
+    except IndexError:
+        print(f"CAN'T FIND SPECIES PATTERN FOR: {tax_name}")
+        raise
 
 
 def parameterized_compare(a, b, allow_empty, *args):
@@ -180,6 +187,62 @@ def map_nodeset(set1, set2):
     return map1to2, map2to1, unmapped1, unmapped2
 
 
+def compare_network_interactions(net1, net2, plant_map12, plant_map21,
+                                 pol_map12, pol_map21, compare_value=False,
+                                 count_nomaps=False):
+    """
+    Compares the ineraction matrices between two networks using the mappings
+    between both networks, and counts the number of discrepancies (i.e. interaction
+    between two species in one network, but not in the other.
+    :param count_nomaps: Count missing interaction when one of the nodes has no
+    mapping to the other network.
+    :param compare_value: Count interactions with different values as "missing".
+    :return: A quadruple containing:
+        1. Number of missing interactions in net1.
+        2. Number of missing interactions in net2.
+        3. Total number of interactions in net1.
+        4. Total number of interactions in net2.
+    """
+    # go over both networks, when going over network1, count interactions to
+    # net1 total and missing interactions to net2 missing. Likewise for net2.
+    net1_total, net2_total = 0, 0
+    net1_missing, net2_missing = 0, 0
+
+    for plant_name, plant_row in net1.iterrows():
+        for pol_name, pol_interaction in plant_row.iteritems():
+            if pol_interaction == 0:
+                continue
+
+            net1_total += 1
+            mplant = plant_map12[plant_name]
+            mpol = pol_map12[pol_name]
+            if not (mpol and mplant):
+                net2_missing += (1 if count_nomaps else 0)
+                continue
+
+            if (net2[mplant, mpol] != pol_interaction and compare_value) or \
+                    not net2[mplant, mpol]:
+                net2_missing += 1
+
+    for plant_name, plant_row in net2.iterrows():
+        for pol_name, pol_interaction in plant_row.iteritems():
+            if pol_interaction == 0:
+                continue
+
+            net2_total += 1
+            mplant = plant_map21[plant_name]
+            mpol = pol_map21[pol_name]
+            if not (mpol and mplant):
+                net1_missing += (1 if count_nomaps else 0)
+                continue
+
+            if (net1[mplant, mpol] != pol_interaction and compare_value) or \
+                    not net1[mplant, mpol]:
+                net1_missing += 1
+
+    return net1_missing, net2_missing, net1_total, net2_total
+
+
 def compare_networks(net1, net2, ct=0.05):
     """
     Takes two networks and compares them according to matching in
@@ -194,11 +257,13 @@ def compare_networks(net1, net2, ct=0.05):
     pol_threshold = (polsize1 + polsize2) / 2 * ct
 
     if abs(plantsize1 - plantsize2) > plant_threshold:
-        print("-->Networks are not duplicates due to different plant sizes")
-        False
+        print(f"-->Networks are not duplicates due to different plant sizes: "
+              f"{plantsize1} || {plantsize2}")
+        return False
     if abs(polsize1 - polsize2) > pol_threshold:
-        print("-->Networks are not duplicate due to different pollinator sizes")
-        False
+        print(f"-->Networks are not duplicate due to different pollinator sizes: "
+              f"{polsize1} || {polsize2}")
+        return False
 
     plants1to2, plants2to1, plants1_unmapped, plants2_unmapped = map_nodeset(
         set(net1.index), set(net2.index))
@@ -206,13 +271,16 @@ def compare_networks(net1, net2, ct=0.05):
         set(net1.columns), set(net2.columns))
 
     if len(plants1_unmapped | plants2_unmapped) > plant_threshold:
-        print("-->Networks are not duplicate due to plant mapping failure")
+        print(f"-->Networks are not duplicate due to plant mapping failure"
+              f" with unmapped {len(plants1_unmapped)} || {len(plants2_unmapped)}")
         return False
     if len(pols1_unmapped | pols2_unmapped) > pol_threshold:
-        print("-->Networks are not duplicate due to pollinator mapping failure")
+        print(f"-->Networks are not duplicate due to pollinator mapping failure"
+              f" with unmapped {len(pols1_unmapped)} || {len(pols2_unmapped)}")
         return False
 
-    print("-->Networks are duplicate for now (check interactions!")  # TODO check interactions!!!
+    compare_network_interactions(net1, net2, plants1to2, plants2to1,
+                                 pols1to2, pols2to1)
     return True
 
 
@@ -232,7 +300,8 @@ def unidentified_rate(net_table):
     return unidentified_plants / len(net_table.index), unidentified_pols / len(net_table.columns)
 
 
-def clean_networks(networks, plant_threshold=0.25, pol_threshold=1.0):
+def clean_networks(networks, plant_threshold=0.25, pol_threshold=1.0,
+                   clean_plants=True, clean_pollinators=False):
     partial_networks = set()
 
     for net_name in networks.keys():
@@ -242,11 +311,13 @@ def clean_networks(networks, plant_threshold=0.25, pol_threshold=1.0):
         # print(f"Net: {net_name} has {missing_plants}% missing plant species and "
         #       f"{missing_pols}% missing pollinator species.")
 
-        known_cols = [not c.lower().startswith('unidentified') for c in ref_net.columns]
-        known_rows = [not r.lower().startswith('unidentified') for r in ref_net.index]
-        if not (all(known_cols) and all(known_rows)):
-            dropped_net = ref_net.loc[known_rows, known_cols]
-            networks[net_name] = dropped_net
+        known_cols = [not (c.lower().startswith('unidentified') and clean_plants)
+                      for c in ref_net.columns]
+        known_rows = [not (r.lower().startswith('unidentified') and clean_pollinators)
+                      for r in ref_net.index]
+
+        dropped_net = ref_net.loc[known_rows, known_cols]
+        networks[net_name] = dropped_net
 
         if missing_plants > plant_threshold or missing_pols > pol_threshold:
             partial_networks.add(net_name)
@@ -275,4 +346,4 @@ if __name__ == "__main__":
     for i in range(len(net_keys)):
         for j in range(i + 1, len(net_keys)):
             print(f"\ncomparing: [{net_keys[i]}] || [{net_keys[j]}]")
-            compare_networks(net_pd[net_keys[i]], net_pd[net_keys[j]])
+            compare_networks(net_pd[net_keys[i]], net_pd[net_keys[j]], ct=0.75)
