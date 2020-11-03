@@ -214,14 +214,16 @@ def compare_network_interactions(net1, net2, plant_map12, plant_map21,
                 continue
 
             net1_total += 1
-            mplant = plant_map12[plant_name]
-            mpol = pol_map12[pol_name]
-            if not (mpol and mplant):
+            mapped_plant = plant_map12[plant_name]
+            mapped_pol = pol_map12[pol_name]
+            # print(f"({plant_name},{pol_name}) => ({mapped_plant}, {mapped_pol})")
+
+            if not (mapped_pol and mapped_plant):
                 net2_missing += (1 if count_nomaps else 0)
                 continue
 
-            if (net2[mplant, mpol] != pol_interaction and compare_value) or \
-                    not net2[mplant, mpol]:
+            if (net2.loc[mapped_plant, mapped_pol] != pol_interaction and compare_value) or \
+                    not net2.loc[mapped_plant, mapped_pol]:
                 net2_missing += 1
 
     for plant_name, plant_row in net2.iterrows():
@@ -230,20 +232,20 @@ def compare_network_interactions(net1, net2, plant_map12, plant_map21,
                 continue
 
             net2_total += 1
-            mplant = plant_map21[plant_name]
-            mpol = pol_map21[pol_name]
-            if not (mpol and mplant):
+            mapped_plant = plant_map21[plant_name]
+            mapped_pol = pol_map21[pol_name]
+            if not (mapped_pol and mapped_plant):
                 net1_missing += (1 if count_nomaps else 0)
                 continue
 
-            if (net1[mplant, mpol] != pol_interaction and compare_value) or \
-                    not net1[mplant, mpol]:
+            if (net1.loc[mapped_plant, mapped_pol] != pol_interaction and compare_value) or \
+                    not net1.loc[mapped_plant, mapped_pol]:
                 net1_missing += 1
 
     return net1_missing, net2_missing, net1_total, net2_total
 
 
-def compare_networks(net1, net2, ct=0.05):
+def compare_networks(net1, net2, ct=0.05, duplicate_reason=False):
     """
     Takes two networks and compares them according to matching in
     plant/pollinator/interaction elements and set sizes.
@@ -257,12 +259,14 @@ def compare_networks(net1, net2, ct=0.05):
     pol_threshold = (polsize1 + polsize2) / 2 * ct
 
     if abs(plantsize1 - plantsize2) > plant_threshold:
-        print(f"-->Networks are not duplicates due to different plant sizes: "
-              f"{plantsize1} || {plantsize2}")
+        if duplicate_reason:
+            print(f"-->Networks are not duplicates due to different plant sizes: "
+                  f"{plantsize1} || {plantsize2}")
         return False
     if abs(polsize1 - polsize2) > pol_threshold:
-        print(f"-->Networks are not duplicate due to different pollinator sizes: "
-              f"{polsize1} || {polsize2}")
+        if duplicate_reason:
+            print(f"-->Networks are not duplicate due to different pollinator sizes: "
+                  f"{polsize1} || {polsize2}")
         return False
 
     plants1to2, plants2to1, plants1_unmapped, plants2_unmapped = map_nodeset(
@@ -271,16 +275,25 @@ def compare_networks(net1, net2, ct=0.05):
         set(net1.columns), set(net2.columns))
 
     if len(plants1_unmapped | plants2_unmapped) > plant_threshold:
-        print(f"-->Networks are not duplicate due to plant mapping failure"
-              f" with unmapped {len(plants1_unmapped)} || {len(plants2_unmapped)}")
+        if duplicate_reason:
+            print(f"-->Networks are not duplicate due to plant mapping failure"
+                  f" with unmapped {len(plants1_unmapped)} || {len(plants2_unmapped)}")
         return False
     if len(pols1_unmapped | pols2_unmapped) > pol_threshold:
-        print(f"-->Networks are not duplicate due to pollinator mapping failure"
-              f" with unmapped {len(pols1_unmapped)} || {len(pols2_unmapped)}")
+        if duplicate_reason:
+            print(f"-->Networks are not duplicate due to pollinator mapping failure"
+                  f" with unmapped {len(pols1_unmapped)} || {len(pols2_unmapped)}")
         return False
 
-    compare_network_interactions(net1, net2, plants1to2, plants2to1,
-                                 pols1to2, pols2to1)
+    net1_missing, net2_missing, net1_total, net2_total = compare_network_interactions(
+        net1, net2, plants1to2, plants2to1, pols1to2, pols2to1)
+    interaction_threshold = (net1_total + net2_total) / 2 * ct
+    if (net1_missing + net2_missing) > interaction_threshold:
+        if duplicate_reason:
+            print(f"-->Networks are not duplicate due to different interactions with missing "
+                  f"{net1_missing} || {net2_missing}")
+        return False
+    print("-->duplicate networks!")
     return True
 
 
@@ -346,4 +359,4 @@ if __name__ == "__main__":
     for i in range(len(net_keys)):
         for j in range(i + 1, len(net_keys)):
             print(f"\ncomparing: [{net_keys[i]}] || [{net_keys[j]}]")
-            compare_networks(net_pd[net_keys[i]], net_pd[net_keys[j]], ct=0.75)
+            compare_networks(net_pd[net_keys[i]], net_pd[net_keys[j]], ct=0.05)
