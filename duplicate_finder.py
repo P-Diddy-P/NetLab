@@ -339,18 +339,6 @@ def clean_networks(networks, plant_threshold=0.25, pol_threshold=1.0,
 
 
 if __name__ == "__main__":
-    # Decided method for duplicate finding:
-    # remove unknown species from both plant and pollinator lists
-    # (drop networks with over X% unknown species of plants or pollinators).
-    # After removing (ENTIRELY) unknown species, preprocess both plant
-    # and pollinator list by formalizing names to some format of required
-    # parameters for comparison, and non required.
-    # Then, set intersect plant and pollinator lists for networks, and compare
-    # all other parts manually by format (consider comparing all by format).
-    # If all goes well with nodelist comparisons, compare interactions
-    # (for efficient interaction comparison, keep base species strings to access
-    # pd cells easily).
-
     sources = [pathlib.Path(arg) for arg in argv[2:]]
     net_pd = extract_networks(sources)
     unknown_networks = clean_networks(net_pd)
