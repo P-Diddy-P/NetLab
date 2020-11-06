@@ -28,15 +28,25 @@ def convert_table(src_file, dest_file):
     final_table.to_csv(dest_file)
 
 
-def convert_directory(src_dir, dest_dir):
+def convert_format(src_file, dest_file):
+    table = pd.read_excel(src_file)
+    table.to_csv(dest_file)
+
+
+def convert_directory(src_dir, dest_dir, iwdb_format=True):
     for src_name in os.listdir(src_dir):
-        convert_table(
-            src_dir.joinpath(src_name),
-            dest_dir.joinpath(src_name).with_suffix('.csv')
-        )
+        if iwdb_format:
+            convert_table(
+                src_dir.joinpath(src_name),
+                dest_dir.joinpath(src_name).with_suffix('.csv')
+            )
+        else:
+            convert_format(
+                src_dir.joinpath(src_name),
+                dest_dir.joinpath(src_name).with_suffix('.csv')
+            )
         print(f"done converting {src_name}")
 
 
 if __name__ == "__main__":
-    raise NotImplementedError  # see file docstring
-    # convert_directory(pathlib.Path(argv[1]), pathlib.Path(argv[2]))
+    convert_directory(pathlib.Path(argv[1]), pathlib.Path(argv[2]), iwdb_format=True)

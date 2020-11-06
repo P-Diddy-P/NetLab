@@ -39,5 +39,4 @@ def extract_polyploids(poly_path):
 if __name__ == "__main__":
     polyploid_path = pathlib.Path(argv[1])
     definite_polyploids, suspect_polyploids = extract_polyploids(polyploid_path)
-    for species in suspect_polyploids:
-        print(species)
+    print(len(definite_polyploids), len(suspect_polyploids))
