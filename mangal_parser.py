@@ -16,43 +16,54 @@ from taxonomy_info import get_nodelist_kingdoms
 MANGAL_URL = "https://mangal.io/api/v2/"
 
 
-def mangal_base_request(request_specifier):
+def mangal_base_request(request_specifier, session):
     """
     The base function for requesting information from mangal.
     :param request_specifier: string specifier about the request.
+    :param session: a requests.session object to send requests from.
     :return: mangal response as a json dictionary.
     """
     request = MANGAL_URL + request_specifier
-    response = req.get(request)
+    if session:
+        response = session.get(request)
+    else:
+        response = req.get(request)
+
     if not response.ok:
-        raise ConnectionError("request '{0}' failed with error code {1}.".format(request, response.status_code))
+        raise ConnectionError("request '{0}' failed with error code {1}.".format(
+            request, response.status_code))
+
     return response.json()
 
 
-def mangal_request_by_id(data_type, mangal_id):
+def mangal_request_by_id(data_type, mangal_id, session=None):
     """
     Requests a single element of some data type from mangal. Always returns a single element
     in one page.
     :param data_type: data type of the requested element (node, edge, network, etc.).
     :param mangal_id: id of the requested element.
+    :param session: a requests.session object to send requests from.
     :return: mangal response as a json dictionary.
     """
-    return mangal_base_request("{data_type}/{value}".format(data_type=data_type, value=mangal_id))
+    return mangal_base_request(
+        "{data_type}/{value}".format(data_type=data_type, value=mangal_id), session
+    )
 
 
-def mangal_request_by_query(data_type, query_parameter):
+def mangal_request_by_query(data_type, query_parameter, session=None):
     """
     Requests all elements matching some query from mangal. Queries can return multiple
     results spanning across several pages, therefore this function should always be called
     from a generator function like query_iterator.
     :param data_type: data type of the query elements.
     :param query_parameter: a dictionary of query parameters.
+    :param session: a requests.session object to send requests from.
     :return: mangal response as a json dictionary.
     """
     query_text = "{data_type}?{query}".format(data_type=data_type,
         query="&".join(["=".join([key, str(val)]) for key, val in query_parameter.items()])
     )
-    return mangal_base_request(query_text)
+    return mangal_base_request(query_text, session)
 
 
 def query_iterator(data_type, query):

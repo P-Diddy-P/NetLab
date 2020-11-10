@@ -49,4 +49,6 @@ def convert_directory(src_dir, dest_dir, iwdb_format=True):
 
 
 if __name__ == "__main__":
-    convert_directory(pathlib.Path(argv[1]), pathlib.Path(argv[2]), iwdb_format=True)
+    print("ser a source path and destination path as environment "
+          "variables and convert them to WoL format.")
+    # convert_directory(pathlib.Path(argv[1]), pathlib.Path(argv[2]), iwdb_format=True)

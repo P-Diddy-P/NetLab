@@ -1,5 +1,6 @@
 from sys import argv
 from collections import namedtuple
+import random
 import pathlib
 import os
 import re
@@ -17,27 +18,6 @@ SPECIES_SPATTERN = r' (?P<base>sp\.{0,2}|n\.i\.) ?' \
 
 SpeciesIdentifier = namedtuple('SpeciesIdentifier',
                                ['genus', 'species', 'index', 'network', 'extra', 'origin'])
-
-
-def iter_sources(source_directories):  # TODO move to mainframe when done!
-    for src in source_directories:
-        for file in os.listdir(src):
-            if file.endswith('csv'):
-                yield src.joinpath(file)
-
-
-def extract_networks(source_directories):   # TODO move to mainframe when done!
-    all_networks = dict()
-    duplicate_names = []
-    for net_file in iter_sources(source_directories):
-        if net_file.stem not in all_networks:
-            all_networks[net_file.stem] = pd.read_csv(net_file, index_col=0)
-        else:
-            duplicate_names.append(net_file.stem)
-
-    if duplicate_names:
-        print(f"found multiple networks with names: {', '.join(duplicate_names)}")
-    return all_networks
 
 
 def name_missing_structure(tax_name):
@@ -251,6 +231,8 @@ def compare_networks(net1, net2, ct=0.05, duplicate_reason=False):
     plant/pollinator/interaction elements and set sizes.
     :param ct: comparison threshold between networks (multiplied by
     mean plant/pollinator/interaction number).
+    :param duplicate_reason: print the whether the networks are
+    duplicate, and why not.
     :return: True if networks are duplicates, False otherwise.
     """
     plantsize1, polsize1 = len(net1.index), len(net1.columns)
@@ -293,52 +275,53 @@ def compare_networks(net1, net2, ct=0.05, duplicate_reason=False):
             print(f"-->Networks are not duplicate due to different interactions with missing "
                   f"{net1_missing} || {net2_missing}")
         return False
-    print("-->duplicate networks!")
+
+    if duplicate_reason:
+        print("-->duplicate networks!")
     return True
 
 
-def unidentified_rate(net_table):
+def drop_network(net1, net2):
     """
-    Counts the number of COMPLETELY unidentified species of plants and pollinators
-    in a network and divides by the total species number. Assumes such species are
-    named `unidentified` in the network, and are wholly unknown (i.e. the genus is
-    also unknown).
-    :param net_table: pandas table of a pollinator network
-    :return: tuple of unknown plant and pollinator rates.
+    Compares networks by plantsize, then by polsize, then randomly
+    :return: True if should drop net2, False if should drop net1
     """
-    unidentified_plants = sum(1 if p.lower().startswith('unidentified') else 0
-                              for p in net_table.index)
-    unidentified_pols = sum(1 if p.lower().startswith('unidentified') else 0
-                            for p in net_table.columns)
-    return unidentified_plants / len(net_table.index), unidentified_pols / len(net_table.columns)
+    plantsize1, polsize1 = len(net1.index), len(net1.columns)
+    plantsize2, polsize2 = len(net2.index), len(net2.columns)
+
+    if plantsize1 > plantsize2:
+        return True
+    if plantsize2 > plantsize1:
+        return False
+
+    if polsize1 > polsize2:
+        return True
+    if polsize2 > polsize1:
+        return False
+
+    return random.random() > 0.5
 
 
-def clean_networks(networks, plant_threshold=0.25, pol_threshold=1.0,
-                   clean_plants=True, clean_pollinators=False):
-    partial_networks = set()
+def compare_all_networks(networks, threshold, drop_early=frozenset(), duplicate_reason=False):
+    net_keys = list(networks.keys())
+    duplicate_networks = list(drop_early)
 
-    for net_name in networks.keys():
-        ref_net = networks[net_name]
-
-        missing_plants, missing_pols = unidentified_rate(ref_net)
-        # print(f"Net: {net_name} has {missing_plants}% missing plant species and "
-        #       f"{missing_pols}% missing pollinator species.")
-
-        known_cols = [not (c.lower().startswith('unidentified') and clean_plants)
-                      for c in ref_net.columns]
-        known_rows = [not (r.lower().startswith('unidentified') and clean_pollinators)
-                      for r in ref_net.index]
-
-        dropped_net = ref_net.loc[known_rows, known_cols]
-        networks[net_name] = dropped_net
-
-        if missing_plants > plant_threshold or missing_pols > pol_threshold:
-            partial_networks.add(net_name)
-
-    return partial_networks
+    for i in range(len(net_keys)):
+        for j in range(i + 1, len(net_keys)):
+            net_i, net_j = net_keys[i], net_keys[j]
+            if duplicate_reason:
+                print(f"\ncomparing: [{net_i}] || [{net_j}]")
+            if compare_networks(networks[net_i], networks[net_j],
+                             ct=threshold, duplicate_reason=duplicate_reason):
+                duplicate_networks.append(
+                    net_j if drop_network(networks[net_i], networks[net_j]) else net_i
+                )
+    return duplicate_networks
 
 
 if __name__ == "__main__":
+    print("removed network utility function to mainframe.")
+    """
     sources = [pathlib.Path(arg) for arg in argv[2:]]
     net_pd = extract_networks(sources)
     unknown_networks = clean_networks(net_pd)
@@ -348,3 +331,4 @@ if __name__ == "__main__":
         for j in range(i + 1, len(net_keys)):
             print(f"\ncomparing: [{net_keys[i]}] || [{net_keys[j]}]")
             compare_networks(net_pd[net_keys[i]], net_pd[net_keys[j]], ct=0.05)
+    """
