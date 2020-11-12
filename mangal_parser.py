@@ -60,8 +60,8 @@ def mangal_request_by_query(data_type, query_parameter, session=None):
     :param session: a requests.session object to send requests from.
     :return: mangal response as a json dictionary.
     """
-    query_text = "{data_type}?{query}".format(data_type=data_type,
-        query="&".join(["=".join([key, str(val)]) for key, val in query_parameter.items()])
+    query_text = "{data_type}?{query}".format(data_type=data_type, query="&".join(
+        ["=".join([key, str(val)]) for key, val in query_parameter.items()])
     )
     return mangal_base_request(query_text, session)
 

@@ -6,6 +6,7 @@ import pandas as pd
 
 from polyploid_species import extract_polyploids
 from duplicate_finder import compare_all_networks
+from network_analysis import dataframe_to_network, get_plant_importance
 
 
 def unidentified_rate(net_table):
@@ -77,5 +78,10 @@ if __name__ == "__main__":
     network_tables, duplicate_network_names = extract_networks(network_paths)
     partial_networks = clean_networks(network_tables)
 
-    duplicates = compare_all_networks(network_tables, 0.05, drop_early=partial_networks, duplicate_reason=False)
-    print(len(network_tables) - len(duplicates))
+    duplicates = compare_all_networks(network_tables, 0.05, drop_early=partial_networks,
+                                      duplicate_reason=False)
+
+    test_graph = dataframe_to_network(network_tables[list(network_tables.keys())[0]])
+    analysis = get_plant_importance(test_graph)
+    for measure in analysis:
+        print(measure)

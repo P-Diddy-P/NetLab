@@ -312,7 +312,7 @@ def compare_all_networks(networks, threshold, drop_early=frozenset(), duplicate_
             if duplicate_reason:
                 print(f"\ncomparing: [{net_i}] || [{net_j}]")
             if compare_networks(networks[net_i], networks[net_j],
-                             ct=threshold, duplicate_reason=duplicate_reason):
+                                ct=threshold, duplicate_reason=duplicate_reason):
                 duplicate_networks.append(
                     net_j if drop_network(networks[net_i], networks[net_j]) else net_i
                 )
