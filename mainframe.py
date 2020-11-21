@@ -1,10 +1,11 @@
 from sys import argv
 import pathlib
+import random
 import os
 
 import pandas as pd
 
-from polyploid_species import extract_polyploids
+from polyploid_species import PolyploidDictionary
 from duplicate_finder import compare_all_networks
 from network_analysis import dataframe_to_network, get_plant_importance
 
@@ -26,7 +27,7 @@ def unidentified_rate(net_table):
 
 
 def clean_networks(networks, plant_threshold=0.25, pol_threshold=1.0,
-                   clean_plants=True, clean_pollinators=False):
+                   clean_plants=False, clean_pollinators=False):
     partial_networks = set()
 
     for net_name in networks.keys():
@@ -70,18 +71,24 @@ def extract_networks(source_directories):
     return all_networks, duplicate_names
 
 
+def sample_networks(networks, no_pick=None, size=10):
+    viable_networks = set(networks.keys())
+    if no_pick:
+        viable_networks = viable_networks - no_pick
+    return random.sample(viable_networks, size)
+
+
 if __name__ == "__main__":
     polyploid_path = pathlib.Path(argv[1])
     network_paths = [pathlib.Path(path_str) for path_str in argv[2:]]
 
-    definite_polyploids, suspect_polyploids = extract_polyploids(polyploid_path)
+    polydict = PolyploidDictionary(polyploid_path)
     network_tables, duplicate_network_names = extract_networks(network_paths)
     partial_networks = clean_networks(network_tables)
 
-    duplicates = compare_all_networks(network_tables, 0.05, drop_early=partial_networks,
-                                      duplicate_reason=False)
+    duplicates = compare_all_networks(network_tables, 0.05, drop_early=partial_networks)
 
     test_graph = dataframe_to_network(network_tables[list(network_tables.keys())[0]])
     analysis = get_plant_importance(test_graph)
-    for measure in analysis:
-        print(measure)
+    for species, measure in analysis.items():
+        print(f"{species}{polydict.test_ploidy(species, annotate=True)}", " :: ", measure)

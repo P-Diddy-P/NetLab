@@ -1,6 +1,17 @@
+from collections import namedtuple
+
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
+
+
+AnalysisResults = namedtuple('SpeciesAnalysis', [
+    'dn',  # degree count
+    'dc',  # degree centrality
+    'cc',  # closeness centrality
+    'bc',  # betweenness centrality
+    'pr'   # pagerank score
+])
 
 
 def dataframe_to_network(dataframe):
@@ -19,6 +30,7 @@ def dataframe_to_network(dataframe):
 
 def get_plant_importance(graph):
     g_plants = [node for node in graph.nodes if graph.nodes[node]['bipartite'] == 'plant']
+    analysis_results = dict()
 
     degree_count = {t[0]: t[1] for t in graph.degree}
     degree_centrality = nx.algorithms.bipartite.degree_centrality(graph, g_plants)
@@ -26,7 +38,16 @@ def get_plant_importance(graph):
     closeness = nx.algorithms.bipartite.closeness_centrality(graph, g_plants)
     pagerank = nx.algorithms.pagerank(graph, weight='weight')
 
-    return degree_count, degree_centrality, betweenness, closeness, pagerank
+    for species in degree_count.keys():
+        analysis_results[species] = AnalysisResults(
+            dn=degree_count[species],
+            dc=degree_centrality[species],
+            bc=betweenness[species],
+            cc=closeness[species],
+            pr=pagerank[species]
+        )
+
+    return analysis_results
 
 
 if __name__ == "__main__":

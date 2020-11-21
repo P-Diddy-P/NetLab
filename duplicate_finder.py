@@ -225,14 +225,14 @@ def compare_network_interactions(net1, net2, plant_map12, plant_map21,
     return net1_missing, net2_missing, net1_total, net2_total
 
 
-def compare_networks(net1, net2, ct=0.05, duplicate_reason=False):
+def compare_networks(net1, net2, ct=0.05, log=False):
     """
     Takes two networks and compares them according to matching in
     plant/pollinator/interaction elements and set sizes.
     :param ct: comparison threshold between networks (multiplied by
     mean plant/pollinator/interaction number).
-    :param duplicate_reason: print the whether the networks are
-    duplicate, and why not.
+    :param log: print the whether the networks are duplicate,
+    and why not.
     :return: True if networks are duplicates, False otherwise.
     """
     plantsize1, polsize1 = len(net1.index), len(net1.columns)
@@ -241,12 +241,12 @@ def compare_networks(net1, net2, ct=0.05, duplicate_reason=False):
     pol_threshold = (polsize1 + polsize2) / 2 * ct
 
     if abs(plantsize1 - plantsize2) > plant_threshold:
-        if duplicate_reason:
+        if log:
             print(f"-->Networks are not duplicates due to different plant sizes: "
                   f"{plantsize1} || {plantsize2}")
         return False
     if abs(polsize1 - polsize2) > pol_threshold:
-        if duplicate_reason:
+        if log:
             print(f"-->Networks are not duplicate due to different pollinator sizes: "
                   f"{polsize1} || {polsize2}")
         return False
@@ -257,12 +257,12 @@ def compare_networks(net1, net2, ct=0.05, duplicate_reason=False):
         set(net1.columns), set(net2.columns))
 
     if len(plants1_unmapped | plants2_unmapped) > plant_threshold:
-        if duplicate_reason:
+        if log:
             print(f"-->Networks are not duplicate due to plant mapping failure"
                   f" with unmapped {len(plants1_unmapped)} || {len(plants2_unmapped)}")
         return False
     if len(pols1_unmapped | pols2_unmapped) > pol_threshold:
-        if duplicate_reason:
+        if log:
             print(f"-->Networks are not duplicate due to pollinator mapping failure"
                   f" with unmapped {len(pols1_unmapped)} || {len(pols2_unmapped)}")
         return False
@@ -271,12 +271,12 @@ def compare_networks(net1, net2, ct=0.05, duplicate_reason=False):
         net1, net2, plants1to2, plants2to1, pols1to2, pols2to1)
     interaction_threshold = (net1_total + net2_total) / 2 * ct
     if (net1_missing + net2_missing) > interaction_threshold:
-        if duplicate_reason:
+        if log:
             print(f"-->Networks are not duplicate due to different interactions with missing "
                   f"{net1_missing} || {net2_missing}")
         return False
 
-    if duplicate_reason:
+    if log:
         print("-->duplicate networks!")
     return True
 
@@ -289,31 +289,27 @@ def drop_network(net1, net2):
     plantsize1, polsize1 = len(net1.index), len(net1.columns)
     plantsize2, polsize2 = len(net2.index), len(net2.columns)
 
-    if plantsize1 > plantsize2:
-        return True
-    if plantsize2 > plantsize1:
-        return False
+    if plantsize1 != plantsize2:
+        return plantsize1 > plantsize2
 
-    if polsize1 > polsize2:
-        return True
-    if polsize2 > polsize1:
-        return False
+    if polsize1 != polsize2:
+        return polsize1 > polsize2
 
     return random.random() > 0.5
 
 
-def compare_all_networks(networks, threshold, drop_early=frozenset(), duplicate_reason=False):
-    net_keys = list(networks.keys())
-    duplicate_networks = list(drop_early)
+def compare_all_networks(networks, threshold, drop_early=frozenset(), log=False):
+    net_keys = list(set(networks.keys()) - drop_early)
+    duplicate_networks = drop_early
 
     for i in range(len(net_keys)):
         for j in range(i + 1, len(net_keys)):
             net_i, net_j = net_keys[i], net_keys[j]
-            if duplicate_reason:
+            if log:
                 print(f"\ncomparing: [{net_i}] || [{net_j}]")
             if compare_networks(networks[net_i], networks[net_j],
-                                ct=threshold, duplicate_reason=duplicate_reason):
-                duplicate_networks.append(
+                                ct=threshold, log=log):
+                duplicate_networks.add(
                     net_j if drop_network(networks[net_i], networks[net_j]) else net_i
                 )
     return duplicate_networks
