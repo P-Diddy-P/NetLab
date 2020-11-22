@@ -5,15 +5,6 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 
-AnalysisResults = namedtuple('SpeciesAnalysis', [
-    'dn',  # degree count
-    'dc',  # degree centrality
-    'cc',  # closeness centrality
-    'bc',  # betweenness centrality
-    'pr'   # pagerank score
-])
-
-
 def dataframe_to_network(dataframe):
     net_graph = nx.Graph()
 
@@ -28,7 +19,12 @@ def dataframe_to_network(dataframe):
     return net_graph
 
 
-def get_plant_importance(graph):
+def plant_measures(graph):
+    """
+    Calculates centrality measures for all plants in bipartite graph
+    :param graph: Bipartite networkx graph
+    :return: list of dictionaries with names and centrality measures of each species
+    """
     g_plants = [node for node in graph.nodes if graph.nodes[node]['bipartite'] == 'plant']
     analysis_results = dict()
 
@@ -39,15 +35,29 @@ def get_plant_importance(graph):
     pagerank = nx.algorithms.pagerank(graph, weight='weight')
 
     for species in degree_count.keys():
-        analysis_results[species] = AnalysisResults(
-            dn=degree_count[species],
-            dc=degree_centrality[species],
-            bc=betweenness[species],
-            cc=closeness[species],
-            pr=pagerank[species]
-        )
-
+        analysis_results[species] = {
+            'dn': degree_count[species],
+            'dc': degree_centrality[species],
+            'cc': closeness[species],
+            'bc': betweenness[species],
+            'pr': pagerank[species]
+        }
     return analysis_results
+
+
+def rank_plants(network_table, interest):
+    network_graph = dataframe_to_network(network_table)
+    measures = plant_measures(network_graph)
+    interest_rank = {sp: dict() for sp in interest}
+
+    for sort_key in ['dn', 'dc', 'cc', 'bc', 'pr']:
+        me_sort = [(sp, measures[sp][sort_key]) for sp in measures.keys()]
+        print(sorted(me_sort, key=lambda e: e[1]))
+        # create a list of species names and sort them by the importance
+        # measure. After that, it is possible to fix the normalized rank of
+        # species of interest by adding their distance from previous species
+        # and subtracting the mean distance (not sure if necessary, add as param).
+        # consider first counting polys in all networks.
 
 
 if __name__ == "__main__":

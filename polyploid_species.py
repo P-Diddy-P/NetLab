@@ -34,16 +34,10 @@ class PolyploidDictionary:
                 if suspect:
                     self.suspect_polyploids.add(name)
 
-    def test_ploidy(self, tax_name, annotate=False):
-        ploidy = 0
+    def test_ploidy(self, tax_name, with_suspect=False):
         if tax_name in self.definite_polyploids:
-            ploidy = 2
-        if tax_name in self.suspect_polyploids:
-            ploidy = 1
-
-        if annotate:
-            ploidy = ploidy * '*'
-        return ploidy
+            return True
+        return tax_name in self.suspect_polyploids and with_suspect
 
     @property
     def definite(self):

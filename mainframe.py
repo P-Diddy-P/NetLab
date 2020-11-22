@@ -7,7 +7,7 @@ import pandas as pd
 
 from polyploid_species import PolyploidDictionary
 from duplicate_finder import compare_all_networks
-from network_analysis import dataframe_to_network, get_plant_importance
+from network_analysis import rank_plants
 
 
 def unidentified_rate(net_table):
@@ -38,13 +38,15 @@ def clean_networks(networks, plant_threshold=0.25, pol_threshold=1.0,
         except:
             print(net_name, "\n", ref_net)
             raise
-        known_cols = [not (c.lower().startswith('unidentified') and clean_plants)
-                      for c in ref_net.columns]
-        known_rows = [not (r.lower().startswith('unidentified') and clean_pollinators)
-                      for r in ref_net.index]
 
-        dropped_net = ref_net.loc[known_rows, known_cols]
-        networks[net_name] = dropped_net
+        if clean_pollinators or clean_plants:
+            known_cols = [not (c.lower().startswith('unidentified') and clean_pollinators)
+                          for c in ref_net.columns]
+            known_rows = [not (r.lower().startswith('unidentified') and clean_plants)
+                          for r in ref_net.index]
+
+            dropped_net = ref_net.loc[known_rows, known_cols]
+            networks[net_name] = dropped_net
 
         if missing_plants > plant_threshold or missing_pols > pol_threshold:
             partial_networks.add(net_name)
@@ -87,8 +89,14 @@ if __name__ == "__main__":
     partial_networks = clean_networks(network_tables)
 
     duplicates = compare_all_networks(network_tables, 0.05, drop_early=partial_networks)
+    network_polyploids = dict()
+    for names, table in network_tables.items():
+        polies = {pn for pn in table.index if polydict.test_ploidy(pn)}
+        if len(polies) > 0:
+            network_polyploids[names] = polies
 
-    test_graph = dataframe_to_network(network_tables[list(network_tables.keys())[0]])
-    analysis = get_plant_importance(test_graph)
-    for species, measure in analysis.items():
-        print(f"{species}{polydict.test_ploidy(species, annotate=True)}", " :: ", measure)
+    network_sample = sample_networks(network_tables, no_pick=duplicates, size=20)
+    for name in network_sample:
+        if name in network_polyploids:
+            rank_plants(network_tables[name], network_polyploids[name])
+            break
