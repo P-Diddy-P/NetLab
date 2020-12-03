@@ -300,7 +300,7 @@ def drop_network(net1, net2):
 
 def compare_all_networks(networks, threshold, drop_early=frozenset(), log=False):
     net_keys = list(set(networks.keys()) - drop_early)
-    duplicate_networks = drop_early
+    duplicate_networks = set(drop_early)
 
     for i in range(len(net_keys)):
         for j in range(i + 1, len(net_keys)):

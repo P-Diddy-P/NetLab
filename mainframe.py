@@ -86,17 +86,26 @@ if __name__ == "__main__":
 
     polydict = PolyploidDictionary(polyploid_path)
     network_tables, duplicate_network_names = extract_networks(network_paths)
-    partial_networks = clean_networks(network_tables)
+    invalid_networks = clean_networks(network_tables)
 
-    duplicates = compare_all_networks(network_tables, 0.05, drop_early=partial_networks)
+    duplicates = compare_all_networks(network_tables, 0.05, drop_early=invalid_networks)
     network_polyploids = dict()
-    for names, table in network_tables.items():
+    for name, table in network_tables.items():
         polies = {pn for pn in table.index if polydict.test_ploidy(pn)}
         if len(polies) > 0:
-            network_polyploids[names] = polies
+            network_polyploids[name] = polies
 
-    network_sample = sample_networks(network_tables, no_pick=duplicates, size=20)
-    for name in network_sample:
-        if name in network_polyploids:
-            rank_plants(network_tables[name], network_polyploids[name])
-            break
+    total, failures = 0, 0
+    for name, table in network_tables.items():
+        if name not in network_polyploids:
+            continue
+        print(name)
+        total += 1
+        try:
+            ranked = rank_plants(table, 'pg')
+        except Exception as err:
+            print(f"{name} error: {err}")
+            failures += 1
+        break
+
+    print(f"{failures} failures out of {total} tables")
