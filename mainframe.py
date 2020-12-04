@@ -7,7 +7,7 @@ import pandas as pd
 
 from polyploid_species import PolyploidDictionary
 from duplicate_finder import compare_all_networks
-from network_analysis import rank_plants
+from network_analysis import rank_graph, network_nodf
 
 
 def unidentified_rate(net_table):
@@ -100,12 +100,16 @@ if __name__ == "__main__":
         if name not in network_polyploids:
             continue
         print(name)
+        print(network_nodf(table))
+        break
+        """
         total += 1
         try:
-            ranked = rank_plants(table, 'pg')
+            ranked = rank_graph(table, 'pg')
         except Exception as err:
             print(f"{name} error: {err}")
             failures += 1
         break
+        """
 
     print(f"{failures} failures out of {total} tables")
