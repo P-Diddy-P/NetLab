@@ -35,7 +35,7 @@ def clean_networks(networks, plant_threshold=0.25, pol_threshold=1.0,
 
         try:
             missing_plants, missing_pols = unidentified_rate(ref_net)
-        except:
+        except Exception:
             print(net_name, "\n", ref_net)
             raise
 
@@ -68,7 +68,7 @@ def extract_networks(source_directories):
         if net_file.stem not in all_networks:
             all_networks[net_file.stem] = pd.read_csv(net_file, index_col=0)
         else:
-            duplicate_names.append(net_file.stem)
+            duplicate_names.append(net_file)
 
     return all_networks, duplicate_names
 
@@ -80,6 +80,13 @@ def sample_networks(networks, no_pick=None, size=10):
     return random.sample(viable_networks, size)
 
 
+def analyze_networks(networks, polyploids, measure='pg'):
+    print(f"Insert network analysis pipe here")
+    for name, table in networks.items():
+        ranked_species = rank_graph(table, measure_by=measure)
+        print(ranked_species)
+
+
 if __name__ == "__main__":
     polyploid_path = pathlib.Path(argv[1])
     network_paths = [pathlib.Path(path_str) for path_str in argv[2:]]
@@ -89,27 +96,16 @@ if __name__ == "__main__":
     invalid_networks = clean_networks(network_tables)
 
     duplicates = compare_all_networks(network_tables, 0.05, drop_early=invalid_networks)
+    print(f"{len(duplicates)} duplicates found")
     network_polyploids = dict()
     for name, table in network_tables.items():
         polies = {pn for pn in table.index if polydict.test_ploidy(pn)}
         if len(polies) > 0:
             network_polyploids[name] = polies
 
-    total, failures = 0, 0
-    for name, table in network_tables.items():
-        if name not in network_polyploids:
-            continue
-        print(name)
-        print(network_nodf(table))
-        break
-        """
-        total += 1
-        try:
-            ranked = rank_graph(table, 'pg')
-        except Exception as err:
-            print(f"{name} error: {err}")
-            failures += 1
-        break
-        """
+    networks_to_analyze = {name: table for name, table in network_tables.items() if
+                           name in network_polyploids and
+                           name not in duplicates and
+                           name not in invalid_networks}
 
-    print(f"{failures} failures out of {total} tables")
+    analyze_networks(networks_to_analyze, network_polyploids)

@@ -37,7 +37,7 @@ class PolyploidDictionary:
     def test_ploidy(self, tax_name, with_suspect=False):
         if tax_name in self.definite_polyploids:
             return True
-        return tax_name in self.suspect_polyploids and with_suspect
+        return with_suspect and tax_name in self.suspect_polyploids
 
     @property
     def definite(self):

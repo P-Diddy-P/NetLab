@@ -20,7 +20,7 @@ def dataframe_to_network(dataframe):
     return net_graph
 
 
-def musrank_implementation(table, n_iterations=100):
+def musrank_implementation(table, n_iterations=100, delta=10e-6):
     # TODO you can't just slap an equation on a matrix convergence process
     # TODO and call it a day, dig a little deeper to catch zero-division and overflows.
     """
@@ -28,21 +28,26 @@ def musrank_implementation(table, n_iterations=100):
     as seen in (DOI: 10.1038/srep08182).
     :param table: pandas dataframe of network.
     :param n_iterations: number of iterations to run MusRank.
+    :param delta: threshold for accepting steady state.
     :return:
     """
     n_plants, n_pols = table.shape
     zo_table = table.astype(bool).astype(float).to_numpy()
     plant_v, pol_i = np.ones(n_plants), np.ones(n_pols)
 
-    for _ in range(n_iterations):
+    for i in range(n_iterations):
         next_i = zo_table.transpose().dot(plant_v)
-        normed_i = (next_i - next_i.mean()) / next_i.std()
+        normed_i = next_i / next_i.mean()
 
-        inverse_i = np.divide(1, pol_i, out=-np.ones_like(pol_i), where=(pol_i != 0))
+        inverse_i = np.divide(1, pol_i, out=np.ones_like(pol_i), where=(pol_i != 0))
         next_v = 1 / (zo_table.dot(inverse_i))
-        normed_v = (next_v - next_v.mean()) / next_v.std()
+        normed_v = next_v / next_v.mean()
 
+        iter_delta = np.linalg.norm(normed_v, ord=1) + np.linalg.norm(normed_i, ord=1)
         plant_v, pol_i = normed_v, normed_i
+        if iter_delta < delta * n_pols * n_plants:
+            print(f"Convergence reached in iteration {i}")
+            break
 
     plant_rank = zip(table.index, plant_v)
     pol_rank = zip(table.columns, pol_i)
@@ -51,7 +56,6 @@ def musrank_implementation(table, n_iterations=100):
 
 
 def calculate_measure(graph, plant_side, measure='pg', weight='weight', table=None):
-    print([node for node in graph.nodes if node in plant_side])
     if measure == 'dn':
         return {t[0]: t[1] for t in graph.degree}
     if measure == 'dc':
@@ -62,7 +66,7 @@ def calculate_measure(graph, plant_side, measure='pg', weight='weight', table=No
         return nx.algorithms.bipartite.betweenness_centrality(graph, plant_side)
     if measure == 'pg':
         return nx.algorithms.pagerank(graph, weight=weight)
-    if measure == 'mr' and table:
+    if measure == 'mr' and table is not None:
         return musrank_implementation(table)
 
     raise ValueError('Unknown measure: {}'.format(measure))
