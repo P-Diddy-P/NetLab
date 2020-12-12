@@ -39,6 +39,14 @@ class PolyploidDictionary:
             return True
         return with_suspect and tax_name in self.suspect_polyploids
 
+    def iterate_polyploids(self, with_suspects=False):
+        for species in self.definite:
+            yield species
+
+        if with_suspects:
+            for species in self.suspect:
+                yield species
+
     @property
     def definite(self):
         return self.definite_polyploids

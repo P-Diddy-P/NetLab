@@ -4,10 +4,12 @@ import random
 import os
 
 import pandas as pd
+import numpy as np
+from Bio import Phylo
 
 from polyploid_species import PolyploidDictionary
 from duplicate_finder import compare_all_networks
-from network_analysis import rank_graph, network_nodf
+from network_analysis import rank_graph, network_nodf, get_fractional_indices
 
 
 def unidentified_rate(net_table):
@@ -73,25 +75,63 @@ def extract_networks(source_directories):
     return all_networks, duplicate_names
 
 
-def sample_networks(networks, no_pick=None, size=10):
-    viable_networks = set(networks.keys())
-    if no_pick:
-        viable_networks = viable_networks - no_pick
-    return random.sample(viable_networks, size)
+def permute_table(table, row_order, column_order):
+    ordered = table.reindex(row_order, axis='index')
+    ordered = ordered.reindex(column_order, axis='columns')
+    return ordered
 
 
-def analyze_networks(networks, polyploids, measure='pg'):
-    print(f"Insert network analysis pipe here")
+def analyze_networks(networks, polyploids, phylogenetic_tree, result_path, measure='pg'):
     for name, table in networks.items():
-        ranked_species = rank_graph(table, measure_by=measure)
-        print(ranked_species)
+        net_poly = polyploids[name]
+
+        r_plants, r_pols = rank_graph(table, measure_by=measure)
+        try:
+            plant_names = {'_'.join(k.split(' ')).lower() for k in r_plants.keys()}
+            print(f"{phylogenetic_tree.common_ancestor(plant_names)}")
+        except ValueError:
+            print(f"failed to get whole tree for {name}")
+        polyploid_indices = get_fractional_indices(r_plants, net_poly)
+
+        ordered_table = permute_table(
+            table,
+            sorted(r_plants.keys(), key=r_plants.get, reverse=True),
+            sorted(r_pols, key=r_pols.get, reverse=True)
+        )
+        nodf, nodf_contributions = network_nodf(ordered_table)
+
+        with open(result_path.joinpath(name), mode='w') as fp:
+            fp.write(f"{len(r_plants)} {len(r_pols)}\n")  # total number of plants and pollinators for ref
+            fp.write(f"{len(net_poly) / len(r_plants)}\n\n")  # polyploid fraction of plants
+
+            for poly_sp in net_poly:  # raw polyploid measure
+                fp.write(f"{r_plants[poly_sp]}\n")
+            fp.write(f"\n{np.mean([r_plants[k] for k in net_poly])}\n\n")
+
+            for poly_sp in net_poly:  # polyploid importance indices by measure (higher == better)
+                fp.write(f"{polyploid_indices[poly_sp]}\n")
+            fp.write(f"\n{np.mean([v for k, v in polyploid_indices.items()])}\n\n")
+
+            plant_mean_nodf = np.mean([v for k, v in nodf_contributions.items()])
+            poly_mean_nodf = np.mean([nodf_contributions[k] for k in net_poly])
+            try:
+                fp.write(f"{poly_mean_nodf / plant_mean_nodf}\n")  # polyploid nodf contribution
+            except FloatingPointError:
+                assert poly_mean_nodf == 0.0 and plant_mean_nodf == 0.0, (poly_mean_nodf, plant_mean_nodf)
+                fp.write(f"{0.0}\n")  # in case of no nestedness at all
+                # this only happens in ponisio_2017_20140101_1319, which has 3 plants and 3 pollinators
 
 
 if __name__ == "__main__":
-    polyploid_path = pathlib.Path(argv[1])
-    network_paths = [pathlib.Path(path_str) for path_str in argv[2:]]
+    np.seterr(all='raise')
+    analysis_results_path = pathlib.Path(argv[1])
+    polyploid_path = pathlib.Path(argv[2])
+    tree_path = pathlib.Path(argv[3]).joinpath('ALLMB.tre')
+    network_paths = [pathlib.Path(path_str) for path_str in argv[4:]]
 
     polydict = PolyploidDictionary(polyploid_path)
+    phylo_tree = Phylo.read(tree_path, format='newick')
+
     network_tables, duplicate_network_names = extract_networks(network_paths)
     invalid_networks = clean_networks(network_tables)
 
@@ -108,4 +148,5 @@ if __name__ == "__main__":
                            name not in duplicates and
                            name not in invalid_networks}
 
-    analyze_networks(networks_to_analyze, network_polyploids)
+    print(f"analyzing {len(networks_to_analyze)} networks")
+    analyze_networks(networks_to_analyze, network_polyploids, phylo_tree, analysis_results_path)

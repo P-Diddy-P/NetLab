@@ -78,14 +78,29 @@ def rank_graph(network_table, measure_by):
     returns a subset of the nodes if exist.
     :param network_table: pandas table to convert into networkx graph.
     :param measure_by: contrality measure, select one from calculate_measure if/else
-    :return: a sorted list containing pairs of (plant species, centrality value)
+    :return: two dictionaries of (species, rank), one for plants, one for pollinators
     """
     network_graph = dataframe_to_network(network_table)
     network_plants = set(network_table.index)
+    network_pollinators = set(network_table.columns)
     ranked_graph = calculate_measure(network_graph, network_plants, measure_by,
                                      table=network_table)
 
-    return ranked_graph
+    ranked_plants = dict((k, ranked_graph[k]) for k in network_plants)
+    ranked_pollinators = dict((k, ranked_graph[k]) for k in network_pollinators)
+    return ranked_plants, ranked_pollinators
+
+
+def get_fractional_indices(ranks, species_to_get):
+    fractional_indices = dict()
+    sorted_species = list(ranks.keys())
+    sorted_species.sort(key=ranks.get)  # sort species in ascending order by measure (higher == better)
+
+    for spec in species_to_get:
+        spec_idx = sorted_species.index(spec)
+        fractional_indices[spec] = spec_idx / (len(sorted_species) - 1)
+
+    return fractional_indices
 
 
 def network_nodf(network_table):
@@ -103,11 +118,13 @@ def network_nodf(network_table):
     # Calculate row N_paired
     row_overlap = np.dot(zo_table, zo_table.T)
     row_degrees = zo_table.sum(axis=1)
-    row_deg_matrix = row_degrees * np.ones_like(row_overlap)
+    row_degrees_matrix = row_degrees * np.ones_like(row_overlap)
 
     df_paired = (row_degrees > row_degrees[:, np.newaxis])
     valid_matrix = np.multiply(df_paired, np.tril(np.ones_like(row_overlap), k=-1))
-    row_partial_overlap = np.divide(row_overlap, row_deg_matrix)
+    row_partial_overlap = np.divide(row_overlap, row_degrees_matrix,
+                                    out=np.zeros_like(row_overlap),
+                                    where=(row_degrees_matrix != 0))
 
     row_nodf = np.dot(row_partial_overlap, valid_matrix).diagonal()
 
@@ -118,7 +135,9 @@ def network_nodf(network_table):
 
     df_paired_col = (col_degrees > col_degrees[:, np.newaxis])
     valid_matrix = np.multiply(df_paired_col, np.tril(np.ones_like(col_overlap), k=-1))
-    col_partial_overlap = np.divide(col_overlap, col_degrees_matrix)
+    col_partial_overlap = np.divide(col_overlap, col_degrees_matrix,
+                                    out=np.zeros_like(col_overlap),
+                                    where=(col_degrees_matrix != 0))
 
     col_nodf = np.dot(col_partial_overlap, valid_matrix).diagonal()
 
@@ -137,4 +156,15 @@ def network_nodf(network_table):
 
 
 if __name__ == "__main__":
-    print("analysis moved to mainframe")
+    example = {
+        'a': 100,
+        'c': 80,
+        'e': 55,
+        'b': 122,
+        'd': 43,
+        'f': 500,
+        'g': 32
+    }
+    print(
+        get_fractional_indices(example, example.keys())
+    )
