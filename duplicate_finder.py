@@ -320,7 +320,7 @@ def compare_all_networks(networks, threshold, drop_early=frozenset(), log=False)
                                 ct=threshold, log=log):
                 drop_j = drop_network(networks[net_i], networks[net_j])
                 duplicate_networks.add(net_j if drop_j else net_i)
-                print(f"{net_i} ]=[ {net_j}")
+                # print(f"{net_i} ]=DUPLICATES=[ {net_j}")
 
                 if not drop_j:
                     break

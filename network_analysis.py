@@ -1,4 +1,4 @@
-from itertools import chain
+from itertools import chain, repeat
 
 import pandas as pd
 import numpy as np
@@ -31,8 +31,13 @@ def musrank_implementation(table, n_iterations=100, delta=10e-6):
     :param delta: threshold for accepting steady state.
     :return:
     """
-    n_plants, n_pols = table.shape
-    zo_table = table.astype(bool).astype(float).to_numpy()
+    no_isolated = table[(table.T != 0).any()]  # remove isolated nodes
+    no_isolated = no_isolated.loc[:, (no_isolated != 0).any()]
+    isolated_plants, isolated_pollinators = set(table.index) - set(no_isolated.index), \
+                                            set(table.columns) - set(no_isolated.columns)
+
+    n_plants, n_pols = no_isolated.shape
+    zo_table = no_isolated.astype(bool).astype(float).to_numpy()
     plant_v, pol_i = np.ones(n_plants), np.ones(n_pols)
 
     for i in range(n_iterations):
@@ -43,15 +48,18 @@ def musrank_implementation(table, n_iterations=100, delta=10e-6):
         next_v = 1 / (zo_table.dot(inverse_i))
         normed_v = next_v / next_v.mean()
 
-        iter_delta = np.linalg.norm(normed_v, ord=1) + np.linalg.norm(normed_i, ord=1)
+        iter_delta = np.linalg.norm(normed_v) + np.linalg.norm(normed_i)
         plant_v, pol_i = normed_v, normed_i
         if iter_delta < delta * n_pols * n_plants:
             print(f"Convergence reached in iteration {i}")
             break
 
-    plant_rank = zip(table.index, plant_v)
-    pol_rank = zip(table.columns, pol_i)
-    net_rank = {k: v for k, v in chain.from_iterable([pol_rank, plant_rank])}
+    plant_rank = zip(no_isolated.index, plant_v)
+    pol_rank = zip(no_isolated.columns, pol_i)
+    plant_zeros = zip(isolated_plants, repeat(0))
+    pol_zeros = zip(isolated_pollinators, repeat(0))
+
+    net_rank = {k: v for k, v in chain.from_iterable([pol_rank, plant_rank, plant_zeros, pol_zeros])}
     return net_rank
 
 

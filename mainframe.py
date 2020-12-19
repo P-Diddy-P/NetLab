@@ -10,6 +10,7 @@ from Bio import Phylo
 from polyploid_species import PolyploidDictionary
 from duplicate_finder import compare_all_networks
 from network_analysis import rank_graph, network_nodf, get_fractional_indices
+from phylogenetic_tree import verify_in_tree
 
 
 def unidentified_rate(net_table):
@@ -86,12 +87,13 @@ def analyze_networks(networks, polyploids, phylogenetic_tree, result_path, measu
         net_poly = polyploids[name]
 
         r_plants, r_pols = rank_graph(table, measure_by=measure)
-        try:
-            plant_names = {'_'.join(k.split(' ')).lower() for k in r_plants.keys()}
-            print(f"{phylogenetic_tree.common_ancestor(plant_names)}")
-        except ValueError:
-            print(f"failed to get whole tree for {name}")
         polyploid_indices = get_fractional_indices(r_plants, net_poly)
+        """try:
+            plants_fixed = ['_'.join(k.split()).lower() for k in r_plants.keys()]
+            missing_in_tree = verify_in_tree(plants_fixed, phylogenetic_tree)  # verify with ALLMB tree in browser
+            print(f"\n{missing_in_tree}/{len(r_plants)} of network {name} not found in tree.\n")
+        except ValueError:
+            print(f"failed to get whole tree for {name}")"""
 
         ordered_table = permute_table(
             table,
@@ -106,11 +108,11 @@ def analyze_networks(networks, polyploids, phylogenetic_tree, result_path, measu
 
             for poly_sp in net_poly:  # raw polyploid measure
                 fp.write(f"{r_plants[poly_sp]}\n")
-            fp.write(f"\n{np.mean([r_plants[k] for k in net_poly])}\n\n")
+            fp.write(f"\n{np.mean([r_plants[k] for k in net_poly])}\n\n")  # mean of polyploid measures
 
             for poly_sp in net_poly:  # polyploid importance indices by measure (higher == better)
                 fp.write(f"{polyploid_indices[poly_sp]}\n")
-            fp.write(f"\n{np.mean([v for k, v in polyploid_indices.items()])}\n\n")
+            fp.write(f"\n{np.mean([v for k, v in polyploid_indices.items()])}\n\n")  # mean importance
 
             plant_mean_nodf = np.mean([v for k, v in nodf_contributions.items()])
             poly_mean_nodf = np.mean([nodf_contributions[k] for k in net_poly])
@@ -149,4 +151,5 @@ if __name__ == "__main__":
                            name not in invalid_networks}
 
     print(f"analyzing {len(networks_to_analyze)} networks")
-    analyze_networks(networks_to_analyze, network_polyploids, phylo_tree, analysis_results_path)
+    analyze_networks(networks_to_analyze, network_polyploids, phylo_tree, analysis_results_path,
+                     measure='pg')
