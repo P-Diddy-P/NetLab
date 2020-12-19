@@ -299,18 +299,19 @@ def drop_network(net1, net2):
 
 
 def compare_all_networks(networks, threshold, drop_early=frozenset(), log=False):
-    net_keys = list(networks.keys())
+    # sort net keys to get consistent number of duplicates for each run
+    net_keys = sorted(list(networks.keys()))
     duplicate_networks = set(drop_early)
 
     for i in range(len(net_keys)):
         net_i = net_keys[i]
         if net_i in duplicate_networks:
-            break
+            continue
 
         for j in range(i + 1, len(net_keys)):
             net_j = net_keys[j]
             if net_j in duplicate_networks:
-                break
+                continue
 
             if log:
                 print(f"\ncomparing: [{net_i}] || [{net_j}]")
@@ -319,6 +320,7 @@ def compare_all_networks(networks, threshold, drop_early=frozenset(), log=False)
                                 ct=threshold, log=log):
                 drop_j = drop_network(networks[net_i], networks[net_j])
                 duplicate_networks.add(net_j if drop_j else net_i)
+                print(f"{net_i} ]=[ {net_j}")
 
                 if not drop_j:
                     break
