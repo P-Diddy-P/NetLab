@@ -99,16 +99,12 @@ def rank_graph(network_table, measure_by):
     return ranked_plants, ranked_pollinators
 
 
-def get_fractional_indices(ranks, species_to_get):
-    fractional_indices = dict()
-    sorted_species = list(ranks.keys())
-    sorted_species.sort(key=ranks.get)  # sort species in ascending order by measure (higher == better)
+def get_fractional_indices(ranks, species_to_get=None):
+    if not species_to_get:
+        species_to_get = ranks.keys()
 
-    for spec in species_to_get:
-        spec_idx = sorted_species.index(spec)
-        fractional_indices[spec] = spec_idx / (len(sorted_species) - 1)
-
-    return fractional_indices
+    max_importance = max(ranks.values())
+    return {k: v / max_importance for k, v in ranks.items() if k in species_to_get}
 
 
 def network_nodf(network_table):
@@ -173,6 +169,5 @@ if __name__ == "__main__":
         'f': 500,
         'g': 32
     }
-    print(
-        get_fractional_indices(example, example.keys())
-    )
+    print(example)
+    print(get_fractional_indices(example, ['g']))
