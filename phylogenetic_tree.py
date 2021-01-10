@@ -27,14 +27,41 @@ def get_phylo_options(tax_name, with_genus=False):
     return spec_options
 
 
-def reconstruct_tree_base(root_name, tree_paths, outpath, missing):
+def collapse_paths(paths):
+    """
+    Collapses the first node of each path as long as the first node of all paths is the same,
+    and each path has more than one node in it.
+    """
+    if any([len(path) < 2 for path in paths]) or not len(paths):
+        return
 
+    sample_next = paths[0][0].name, paths[0][0].branch_length
+    add_length = 0
+    while all((path[0].name, path[0].branch_length) == sample_next for path in paths):
+        add_length += sample_next[1]
+        for path in paths:
+            path.pop(0)
+        sample_next = paths[0][0].name, paths[0][0].branch_length
+
+        if any([len(path) < 2 for path in paths]) or not len(paths):
+            break
+
+    for path in paths:
+        path[0].branch_length += add_length
+
+
+def reconstruct_tree_base(root_name, tree_paths, outpath, missing):
+    """
+    Recursively build a new tree containing only collapsed ;param tree_paths;
+    starting from ;param root_name;. The result is written to ;param outpath;
+    with an auxillary file of ;param missing; species.
+    """
     def reconstruct_tree_rec(root_clade, clade_paths):
         if not clade_paths:
             return
 
+        collapse_paths(clade_paths)
         paths_per_clade = dict()
-        one_child = True
         for path in clade_paths:
             path_start = path.pop(0)
             next_node = (path_start.name, path_start.branch_length)
@@ -58,6 +85,12 @@ def reconstruct_tree_base(root_name, tree_paths, outpath, missing):
 
 
 def generate_sparse_tree(tree, species_of_interest, outpath):
+    """
+    Creates a restriction of ;param tree; so that it will contain only
+    bifurcating nodes between ;param species_of_interest; and their LCA.
+    The resulting tree is written to ;param outpath; with an auxillary file
+    of species not found in ;param tree; from ;param species_of_interest;.
+    """
     # First, get a list of clades to operate on when finding lca
     tree_clades = dict()
     missing_clades = set()

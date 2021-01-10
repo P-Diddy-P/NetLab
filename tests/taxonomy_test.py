@@ -22,7 +22,7 @@ def get_kingdoms_per_db_by_name(*args):
         except (KeyError, AttributeError):
             kingdom_per_db[db] = "ParsingError"
         except ConnectionError as error:
-            raise error("Could not connect to database {0}".format(db))
+            raise error
     return kingdom_per_db
 
 
