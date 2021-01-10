@@ -32,25 +32,25 @@ def collapse_paths(paths):
     Collapses the first node of each path as long as the first node of all paths is the same,
     and each path has more than one node in it.
     """
-    if any([len(path) < 2 for path in paths]) or not len(paths):
+    if any([len(path) < 2 for path in paths]) or len(paths) < 1:
         return
 
-    sample_next = paths[0][0].name, paths[0][0].branch_length
+    sample_next = paths[0][1].name, paths[0][1].branch_length
     add_length = 0
-    while all((path[0].name, path[0].branch_length) == sample_next for path in paths):
-        add_length += sample_next[1]
+    while all((path[1].name, path[1].branch_length) == sample_next for path in paths):
+        add_length += paths[0][0].branch_length
         for path in paths:
             path.pop(0)
-        sample_next = paths[0][0].name, paths[0][0].branch_length
-
-        if any([len(path) < 2 for path in paths]) or not len(paths):
+        try:
+            sample_next = paths[0][1].name, paths[0][1].branch_length
+        except IndexError:
             break
 
-    for path in paths:
-        path[0].branch_length += add_length
+    # the first node on each path should refer to the same clade
+    paths[0][0].branch_length += add_length
 
 
-def reconstruct_tree_base(root_name, tree_paths, outpath, missing):
+def reconstruct_tree_base(root_name, tree_paths):
     """
     Recursively build a new tree containing only collapsed ;param tree_paths;
     starting from ;param root_name;. The result is written to ;param outpath;
@@ -60,28 +60,29 @@ def reconstruct_tree_base(root_name, tree_paths, outpath, missing):
         if not clade_paths:
             return
 
-        collapse_paths(clade_paths)
         paths_per_clade = dict()
         for path in clade_paths:
-            path_start = path.pop(0)
+            path_start = path[0]
             next_node = (path_start.name, path_start.branch_length)
             next_node_paths = paths_per_clade.get(next_node, [])
-            if len(path):
-                next_node_paths.append(path)
+            next_node_paths.append(path)
             if next_node not in paths_per_clade:
                 paths_per_clade[next_node] = next_node_paths
 
         for child_data, child_paths in paths_per_clade.items():
-            child_name, child_length = child_data
+            collapse_paths(child_paths)
+            for path in child_paths:
+                child_data = path.pop(0)
+            child_name, child_length = child_data.name, child_data.branch_length
             child_clade = BaseTree.Clade(name=child_name, branch_length=child_length)
             root_clade.clades.append(child_clade)
+
+            child_paths = [p for p in child_paths if len(p)]
             reconstruct_tree_rec(child_clade, child_paths)
 
     root = BaseTree.Clade(name=root_name)
     reconstruct_tree_rec(root, tree_paths)
-    Phylo.write(root, outpath.joinpath('tree'), 'newick')
-    with open(outpath.joinpath('missing'), 'w') as fd:
-        fd.write(str(missing))
+    return root
 
 
 def generate_sparse_tree(tree, species_of_interest, outpath):
@@ -108,12 +109,15 @@ def generate_sparse_tree(tree, species_of_interest, outpath):
     clade_paths = dict()
     for spec, clade in tree_clades.items():
         clade_paths[spec] = common_ancestor.get_path(clade)
+    reconstructed_tree = reconstruct_tree_base(common_ancestor.name, list(clade_paths.values()))
 
     try:
         mkdir(outpath)
     except FileExistsError:
         pass  # don't care about previously created directories, they will be re-written
-    reconstruct_tree_base(common_ancestor.name, list(clade_paths.values()), outpath, missing_clades)
+    Phylo.write(reconstructed_tree, outpath.joinpath('tree'), 'newick')
+    with open(outpath.joinpath('missing'), 'w') as fd:
+        fd.write(str(missing_clades))
 
 
 if __name__ == "__main__":
