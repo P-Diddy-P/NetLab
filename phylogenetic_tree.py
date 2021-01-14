@@ -53,8 +53,7 @@ def collapse_paths(paths):
 def reconstruct_tree_base(root_name, tree_paths):
     """
     Recursively build a new tree containing only collapsed ;param tree_paths;
-    starting from ;param root_name;. The result is written to ;param outpath;
-    with an auxillary file of ;param missing; species.
+    starting from ;param root_name; and return the resulting tree.
     """
     def reconstruct_tree_rec(root_clade, clade_paths):
         if not clade_paths:
@@ -98,11 +97,11 @@ def generate_sparse_tree(tree, species_of_interest, outpath):
     for spec in species_of_interest:
         # use only major_name, the other one found to be unused on a sample of 500 species.
         # then get the first clade object (assume only one clade is returned for a species name).
-        major_name, minor_name = get_phylo_options(spec)
         try:
+            major_name, minor_name = get_phylo_options(spec)
             major_clade = [e for e in tree.find_clades(major_name)][0]
             tree_clades[spec] = major_clade
-        except IndexError:
+        except (IndexError, ValueError) as e:
             missing_clades.add(spec)
 
     common_ancestor = tree.common_ancestor(tree_clades.values())
@@ -118,6 +117,34 @@ def generate_sparse_tree(tree, species_of_interest, outpath):
     Phylo.write(reconstructed_tree, outpath.joinpath('tree'), 'newick')
     with open(outpath.joinpath('missing'), 'w') as fd:
         fd.write(str(missing_clades))
+
+
+def closest_leaf_distances(tree):
+    """
+    Creates a dictionary of a leaf mapped to the shortest distance between it and another leaf.
+    """
+    distances = {leaf: float("inf") for leaf in tree.get_terminals()}
+    for leaf in tree.get_terminals():
+        path = tree.get_path(leaf)
+        path.insert(0, tree.root)
+        height = path.pop().branch_length
+
+        while height < distances[leaf] and len(path) > 0:
+            current_parent = path.pop()
+            search_leaves = current_parent.get_terminals()
+            search_leaves.remove(leaf)
+
+            for s_leaf in search_leaves:
+
+                distance = height + current_parent.distance(s_leaf)
+                if distance < distances[leaf]:
+                    distances[leaf] = distance
+                if distance < distances[s_leaf]:
+                    distances[s_leaf] = distance
+
+            height += current_parent.branch_length
+
+    return distances
 
 
 if __name__ == "__main__":

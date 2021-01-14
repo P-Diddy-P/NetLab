@@ -10,7 +10,7 @@ from Bio import Phylo
 from polyploid_species import PolyploidDictionary
 from duplicate_finder import compare_all_networks
 from network_analysis import rank_graph, network_nodf, get_fractional_indices
-from phylogenetic_tree import generate_sparse_tree
+from phylogenetic_tree import generate_sparse_tree, closest_leaf_distances
 
 
 def unidentified_rate(net_table):
@@ -126,6 +126,7 @@ def analyze_networks(networks, polyploids, phylogenetic_tree, result_path, measu
 
 if __name__ == "__main__":
     np.seterr(all='raise')
+
     analysis_results_path = pathlib.Path(argv[1])
     polyploid_path = pathlib.Path(argv[2])
     tree_path = pathlib.Path(argv[3]).joinpath('ALLMB.tre')
@@ -137,10 +138,6 @@ if __name__ == "__main__":
     network_tables, duplicate_network_names = extract_networks(network_paths)
     invalid_networks = clean_networks(network_tables)
 
-    sample_network = network_tables['kaiser-bunbury_et_al_2014_30']
-    generate_sparse_tree(phylo_tree, list(sample_network.index), tree_path.parent.joinpath('testnewick'))
-
-    exit(0)  # TODO REMOVE
     duplicates = compare_all_networks(network_tables, 0.05, drop_early=invalid_networks)
     print(f"{len(duplicates)} duplicates found")
     network_polyploids = dict()
@@ -153,6 +150,11 @@ if __name__ == "__main__":
                            name in network_polyploids and
                            name not in duplicates and
                            name not in invalid_networks}
+
+    for name, network in networks_to_analyze.items():
+        plant_species = list(network.index)
+        sparse_tree_path = tree_path.parent.joinpath(f"sparse/{name}")
+        generate_sparse_tree(phylo_tree, plant_species, sparse_tree_path)
 
     print(f"analyzing {len(networks_to_analyze)} networks")
     analyze_networks(networks_to_analyze, network_polyploids, phylo_tree, analysis_results_path,
