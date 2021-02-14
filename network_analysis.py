@@ -6,7 +6,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 
-def dataframe_to_network(dataframe):
+def dataframe_to_network(dataframe, visualize=False):
     net_graph = nx.Graph()
 
     net_graph.add_nodes_from(list(dataframe.columns), bipartite='pollinator')
@@ -17,19 +17,22 @@ def dataframe_to_network(dataframe):
             if dataframe[col_name][row_name] > 0:
                 strength = dataframe[col_name][row_name]
                 net_graph.add_edge(col_name, row_name, weight=strength)
+
+    if visualize:
+        nx.draw(net_graph, with_labels=True)
+        plt.show()
     return net_graph
 
 
 def musrank_implementation(table, n_iterations=100, delta=10e-6):
-    # TODO you can't just slap an equation on a matrix convergence process
-    # TODO and call it a day, dig a little deeper to catch zero-division and overflows.
+    # fails to reach adequate convergence properties, dropped.
     """
     Implements a simplified version of the MusRank algorithm
     as seen in (DOI: 10.1038/srep08182).
     :param table: pandas dataframe of network.
     :param n_iterations: number of iterations to run MusRank.
     :param delta: threshold for accepting steady state.
-    :return:
+    :return: a dictionary assigning importance to each node in the network.
     """
     no_isolated = table[(table.T != 0).any()]  # remove isolated nodes
     no_isolated = no_isolated.loc[:, (no_isolated != 0).any()]
@@ -96,10 +99,18 @@ def rank_graph(network_table, measure_by):
 
     ranked_plants = dict((k, ranked_graph[k]) for k in network_plants)
     ranked_pollinators = dict((k, ranked_graph[k]) for k in network_pollinators)
-    return ranked_plants, ranked_pollinators
+    return get_fractional_indices(ranked_plants), get_fractional_indices(ranked_pollinators)
 
 
 def get_fractional_indices(ranks, species_to_get=None):
+    """
+    Takes a ranks dictionary of species from a network, normalizes them and returns
+    a subset.
+    :Note this function is deprecated, doesn't effect log-odds measures.
+    :param ranks: a dictionary of species and their rankings.
+    :param species_to_get: which species to return, set to None to return all.
+    :return: a dictionary of normalized measures for species_to_get.
+    """
     if not species_to_get:
         species_to_get = ranks.keys()
 
@@ -107,7 +118,7 @@ def get_fractional_indices(ranks, species_to_get=None):
     return {k: v / max_importance for k, v in ranks.items() if k in species_to_get}
 
 
-def network_nodf(network_table):
+def network_nodf(network_table, correction=lambda n: n):
     """
     Calculate network NODF index for the entire network, as well as
     per species NODF contributions.
@@ -117,6 +128,11 @@ def network_nodf(network_table):
     :param network_table: a pandas dataframe of the network
     :return: A 2-tuple of (network NODF score, species relative NODF dictionary)
     """
+    if correction == 'sqrt':
+        correction = lambda n: np.sqrt(n)
+    elif correction is None:
+        correction = lambda n: 1
+
     zo_table = network_table.astype(bool).astype(float).to_numpy()
 
     # Calculate row N_paired
@@ -148,15 +164,69 @@ def network_nodf(network_table):
     # Calculate final NODF and create dict with relative NODF importance
     table_shape = np.array(zo_table.shape)
     nodf_final = (col_nodf.sum() + row_nodf.sum()) / (np.dot(table_shape, table_shape - 1) / 2)
-    plant_nodf = {network_table.index[i]: row_nodf[i] / (len(network_table.index) - i - 1)
+    plant_nodf = {network_table.index[i]: row_nodf[i] / correction(len(network_table.index) - i - 1)
                   for i in range(len(network_table.index) - 1)}
-    pol_nodf = {network_table.columns[i]: col_nodf[i] / (len(network_table.columns) - i - 1)
+    pol_nodf = {network_table.columns[i]: col_nodf[i] / correction(len(network_table.columns) - i - 1)
                 for i in range(len(network_table.columns) - 1)}
 
     plant_nodf[network_table.index[-1]] = 0
     pol_nodf[network_table.columns[-1]] = 0
-    plant_nodf.update(pol_nodf)
-    return nodf_final, plant_nodf
+    return nodf_final, plant_nodf, pol_nodf
+
+
+def permutation_test(species_measures, base_polyploids, permutations=10000, tolerance=100):
+    """
+    Calculates the log odds between the mean measure of diploids and mean measure
+    of polyploids, this is the base result. Then permutes the identity of polyploids
+    ;permutations; times and calculates those simulated results.
+    :param species_measures: a dictionary containing each plant species in
+    the network and its measure.
+    :param base_polyploids: a set of the network's polyploid species.
+    :param permutations: number of permutations to perform. Defaults to 10000
+    :param tolerance: number of floating point errors tolerated before raising error.
+    :return: a 2-tuple containing the base result and a list of length ;permutation;
+    with simulated results.
+    """
+    all_species, n_polyploids = list(species_measures.keys()), len(base_polyploids)
+
+    base_diploids = set(all_species) - base_polyploids
+    base_polyploid_mean = np.mean([species_measures[sp] for sp in base_polyploids])
+    base_diploid_mean = np.mean([species_measures[sp] for sp in base_diploids])
+    base_statistic = np.log(base_polyploid_mean / base_diploid_mean)
+
+    permutation_statistics = []
+    error_count = 0
+
+    while len(permutation_statistics) < permutations:
+        p_polyploids = set(np.random.choice(all_species, n_polyploids, replace=False))
+        p_diploids = set(all_species) - p_polyploids
+        try:
+            p_polyploid_mean = np.mean([species_measures[sp] for sp in p_polyploids])
+            p_diploid_mean = np.mean([species_measures[sp] for sp in p_diploids])
+
+            permutation_statistics.append(np.log(p_polyploid_mean / p_diploid_mean))
+        except FloatingPointError:
+            error_count += 1
+            if error_count >= tolerance:
+                raise
+
+    return base_statistic, permutation_statistics
+
+
+def weighted_permutation_score(base, permutations, index, tables, weight=lambda n: 1):
+    if weight == 'id':
+        weight = lambda n: n
+
+    weighted_base_mean = sum([
+        net_base_score * weight(len(tables[net_name].index)) for net_name, net_base_score
+        in base.items()
+    ])
+    weighted_perm_mean = sum([
+        net_permutations[index] * weight(len(tables[net_name].index)) for net_name, net_permutations
+        in permutations.items()
+    ])
+
+    return weighted_perm_mean > weighted_base_mean
 
 
 if __name__ == "__main__":

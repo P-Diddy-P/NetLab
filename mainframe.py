@@ -1,15 +1,16 @@
 from sys import argv
 import pathlib
-import random
 import os
 
 import pandas as pd
 import numpy as np
+import scipy.stats as stats
+from matplotlib import pyplot as plt
 from Bio import Phylo
 
 from polyploid_species import PolyploidDictionary
 from duplicate_finder import compare_all_networks
-from network_analysis import rank_graph, network_nodf, get_fractional_indices
+from network_analysis import rank_graph, network_nodf, permutation_test, weighted_permutation_score
 from phylogenetic_tree import generate_sparse_tree, closest_leaf_distances
 
 
@@ -82,46 +83,127 @@ def permute_table(table, row_order, column_order):
     return ordered
 
 
-def analyze_networks(networks, polyploids, phylogenetic_tree, result_path, measure='pg'):
-    for name, table in networks.items():
-        net_poly = polyploids[name]
+def generate_network_sparse_trees(networks, phylo_tree, tree_path):
+    for name, network in networks.items():
+        try:
+            plant_species = list(network.index)
+            sparse_tree_path = tree_path.parent.joinpath(f"sparse/{name}")
+            generate_sparse_tree(phylo_tree, plant_species, sparse_tree_path)
+        except Exception as e:
+            print(f"failed to create sparse tree for network {name} [ERROR: {e}]")
+        else:
+            print(f"creates sparse tree for network {name}")
 
-        r_plants, r_pols = rank_graph(table, measure_by=measure)
-        polyploid_indices = get_fractional_indices(r_plants, net_poly)
-        """try:
-            plants_fixed = ['_'.join(k.split()).lower() for k in r_plants.keys()]
-            missing_in_tree = verify_in_tree(plants_fixed, phylogenetic_tree)  # verify with ALLMB tree in browser
-            print(f"\n{missing_in_tree}/{len(r_plants)} of network {name} not found in tree.\n")
-        except ValueError:
-            print(f"failed to get whole tree for {name}")"""
+
+def analyze_networks(networks, polyploids, net_tree_path, measure='pg', missing_tolerance=0.25):
+    net_rank_base, net_rank_permutation = {}, {}
+    net_nodf_base, net_nodf_permutation = {}, {}
+    polyploid_distances, diploid_distances = [], []
+
+    for net_name, net_table in networks.items():
+        net_poly = polyploids[net_name]
+        r_plants, r_pols = rank_graph(net_table, measure_by=measure)
 
         ordered_table = permute_table(
-            table,
+            net_table,
             sorted(r_plants.keys(), key=r_plants.get, reverse=True),
             sorted(r_pols, key=r_pols.get, reverse=True)
         )
-        nodf, nodf_contributions = network_nodf(ordered_table)
+        total_nodf, plant_nodf, pol_nodf = network_nodf(ordered_table, correction='sqrt')
 
-        with open(result_path.joinpath(name), mode='w') as fp:
-            fp.write(f"{len(r_plants)} {len(r_pols)}\n")  # total number of plants and pollinators for ref
-            fp.write(f"{len(net_poly) / len(r_plants)}\n\n")  # polyploid fraction of plants
+        try:  # rank permutation tests
+            rank_base, rank_permutations = permutation_test(r_plants, net_poly)
+            net_rank_base[net_name] = rank_base
+            net_rank_permutation[net_name] = rank_permutations
+        except FloatingPointError:
+            print(f"error calculating rank permutations in network {net_name}, continuing...")
 
-            for poly_sp in net_poly:  # raw polyploid measure
-                fp.write(f"{r_plants[poly_sp]}\n")
-            fp.write(f"\n{np.mean([r_plants[k] for k in net_poly])}\n\n")  # mean of polyploid measures
+        try:  # nodf permutation tests
+            nodf_base, nodf_permutation = permutation_test(plant_nodf, net_poly)
+            net_nodf_base[net_name] = nodf_base
+            net_nodf_permutation[net_name] = nodf_permutation
+        except FloatingPointError:
+            print(f"error calculating nodf permutations in network {net_name}, continuing...")
 
-            for poly_sp in net_poly:  # polyploid importance indices by measure (higher == better)
-                fp.write(f"{polyploid_indices[poly_sp]}\n")
-            fp.write(f"\n{np.mean([v for k, v in polyploid_indices.items()])}\n\n")  # mean importance
+        try:  # phylogenetic tree tests
+            sparse_tree = Phylo.read(net_tree_path.joinpath(net_name, "tree.tre"), 'newick')
+            with open(net_tree_path.joinpath(net_name, "missing"), mode='r') as fd:
+                missing_species = fd.read().split(',')
+                missing_rate = len(missing_species) / len(net_table.index)
+                if missing_rate > missing_tolerance:
+                    print(f"network {net_name} has too many missing species for accurate distance measures.")
+                    continue
 
-            plant_mean_nodf = np.mean([v for k, v in nodf_contributions.items()])
-            poly_mean_nodf = np.mean([nodf_contributions[k] for k in net_poly])
-            try:
-                fp.write(f"{poly_mean_nodf / plant_mean_nodf}\n")  # polyploid nodf contribution
-            except FloatingPointError:
-                assert poly_mean_nodf == 0.0 and plant_mean_nodf == 0.0, (poly_mean_nodf, plant_mean_nodf)
-                fp.write(f"{0.0}\n")  # in case of no nestedness at all
-                # this only happens in ponisio_2017_20140101_1319, which has 3 plants and 3 pollinators
+            # Phylo.draw(sparse_tree)
+            for clade, distance in closest_leaf_distances(sparse_tree).items():
+                species = clade.name.replace('_', ' ')
+                if species in net_poly:
+                    polyploid_distances.append(distance)
+                else:
+                    diploid_distances.append(distance)
+        except (FloatingPointError, FileNotFoundError):
+            print(f"Error getting closest leaf distances for network: {net_name}")
+
+    return net_rank_base, net_rank_permutation, net_nodf_base, net_nodf_permutation, \
+        polyploid_distances, diploid_distances
+
+
+def visualize_results(networks, polyploids, rank_base, rank_perm, nodf_base, nodf_perm,
+                      distance_poly, distance_di, result_path):
+    rank_over_base = {
+        net_name: (sum([1.0 for perm in permutations if perm > rank_base[net_name]]) / 10000.0) for
+        net_name, permutations in rank_perm.items()
+    }
+    stats.probplot(list(rank_over_base.values()), dist='uniform', plot=plt)
+    plt.show()
+
+    rank_mean_overbase_no_fix = sum([
+        1.0 for i in range(10000) if weighted_permutation_score(rank_base, rank_perm, i, networks)
+    ]) / 10000.0
+    rank_mean_overbase_log_fix = sum([
+        1.0 for i in range(10000) if weighted_permutation_score(rank_base, rank_perm, i, networks, weight=np.log)
+    ]) / 10000.0
+    rank_mean_overbase_line_fix = sum([
+        1.0 for i in range(10000) if weighted_permutation_score(rank_base, rank_perm, i, networks, weight='id')
+    ]) / 10000.0
+    print(f"rank mean overbase no fix {rank_mean_overbase_no_fix}")
+    print(f"rank mean overbase log fix {rank_mean_overbase_log_fix}")
+    print(f"rank mean overbase linear fix {rank_mean_overbase_line_fix}")
+
+    nodf_over_base = {
+        net_name: (sum([1.0 for perm in permutations if perm > nodf_base[net_name]]) / 10000.0) for
+        net_name, permutations in nodf_perm.items()
+    }
+    stats.probplot(list(nodf_over_base.values()), dist='uniform', plot=plt)
+    plt.show()
+
+    nodf_mean_overbase_no_fix = sum([
+        1.0 for i in range(10000) if weighted_permutation_score(nodf_base, nodf_perm, i, networks)
+    ]) / 10000.0
+    nodf_mean_overbase_log_fix = sum([
+        1.0 for i in range(10000) if weighted_permutation_score(nodf_base, nodf_perm, i, networks, weight=np.log)
+    ]) / 10000.0
+    nodf_mean_overbase_line_fix = sum([
+        1.0 for i in range(10000) if weighted_permutation_score(nodf_base, nodf_perm, i, networks, weight='id')
+    ]) / 10000.0
+    print(f"nodf mean overbase no fix {nodf_mean_overbase_no_fix}")
+    print(f"nodf mean overbase log fix {nodf_mean_overbase_log_fix}")
+    print(f"nodf mean overbase linear fix {nodf_mean_overbase_line_fix}")
+
+    # size_rank = [(len(net_table.index), rank_over_base[net_name]) for net_name, net_table in networks.items()]
+    # plt.scatter([e[0] for e in size_rank], [e[1] for e in size_rank])
+    # plt.show()
+
+    # after that, perform two sample KS test on polyploid vs diploids shortest distances (consider
+    # both poly<>di and poly>=di hypotheses).
+    print(len(distance_poly), sorted(distance_poly))
+    print(len(distance_di), sorted(distance_di))
+    print(stats.kstest(distance_poly, distance_di, alternative='two-sided'))
+    print(stats.kstest(distance_poly, distance_di, alternative='greater'))
+    print(stats.kstest(distance_poly, distance_di, alternative='less'))
+
+    # finally, perform linear regression of shortest distances to max divided importance (requires
+    # calculating importance again or moving from analyze_networks
 
 
 if __name__ == "__main__":
@@ -151,11 +233,14 @@ if __name__ == "__main__":
                            name not in duplicates and
                            name not in invalid_networks}
 
-    for name, network in networks_to_analyze.items():
-        plant_species = list(network.index)
-        sparse_tree_path = tree_path.parent.joinpath(f"sparse/{name}")
-        generate_sparse_tree(phylo_tree, plant_species, sparse_tree_path)
+    """ SPARSE TREE CREATION IS TIME CONSUMING AND ALREADY DONE
+    generate_network_sparse_trees(networks_to_analyze, phylo_tree, tree_path)
+    """
 
     print(f"analyzing {len(networks_to_analyze)} networks")
-    analyze_networks(networks_to_analyze, network_polyploids, phylo_tree, analysis_results_path,
-                     measure='pg')
+    rank_b, rank_p, nodf_b, nodf_p, dist_p, dist_d = analyze_networks(
+        networks_to_analyze, network_polyploids, tree_path.parent.joinpath("sparse"), missing_tolerance=0.25
+    )
+
+    visualize_results(networks_to_analyze, network_polyploids, rank_b, rank_p, nodf_b, nodf_p,
+                      dist_p, dist_d, analysis_results_path)

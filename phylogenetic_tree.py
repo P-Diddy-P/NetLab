@@ -114,7 +114,7 @@ def generate_sparse_tree(tree, species_of_interest, outpath):
         mkdir(outpath)
     except FileExistsError:
         pass  # don't care about previously created directories, they will be re-written
-    Phylo.write(reconstructed_tree, outpath.joinpath('tree'), 'newick')
+    Phylo.write(reconstructed_tree, outpath.joinpath('tree.tre'), 'newick')
     with open(outpath.joinpath('missing'), 'w') as fd:
         fd.write(str(missing_clades))
 
@@ -144,6 +144,8 @@ def closest_leaf_distances(tree):
 
             height += current_parent.branch_length
 
+    depth = max([tree.distance(leaf) for leaf in tree.get_terminals()])
+    distances = {leaf: distances[leaf] / depth for leaf in tree.get_terminals()}
     return distances
 
 
